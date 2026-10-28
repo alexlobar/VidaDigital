@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<!-- data-build tiene que coincidir con VERSION en js/utils.js y con CACHE en
+     sw.js. Si el navegador sirve un index.html de una versión y unos .js de
+     otra, la app lo detecta y avisa en vez de quedarse sin responder. -->
+<html lang="es" data-theme="dark" data-build="1.0.0">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0d1117">
+  <meta name="description" content="Suscripciones, cuentas, dispositivos y webs: tu vida digital en un solo sitio, offline.">
+  <title>Vida digital</title>
+  <!-- El manifest lo enlaza app.js solo en http/https: en file:// el origen
+       es "null" y el navegador rechaza la petición con un error de CORS. -->
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <!-- iOS no admite SVG aquí. -->
+  <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Saltar al contenido</a>
+
+  <div class="app-shell">
+
+    <!-- ══ CABECERA ══ -->
+    <header class="app-header">
+      <button type="button" class="brand" data-view="home" aria-label="Ir al resumen">
+        <img class="brand__icon" src="icon.svg" alt="" width="28" height="28">
+        <span class="brand__name">Vida digital</span>
+      </button>
+      <button type="button" class="icon-btn" id="btnSettings" data-view="settings"
+              aria-label="Ajustes" title="Ajustes">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="3.2"/>
+          <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>
+        </svg>
+      </button>
+    </header>
+
+    <!-- ══ NAVEGACIÓN ══
+         Abajo en el móvil, a la izquierda en pantallas anchas. Ajustes no
+         está aquí: se entra por el engranaje de la cabecera. -->
+    <nav class="nav" aria-label="Secciones">
+      <button type="button" class="nav__item" data-view="home">
+        <span class="nav__icon" aria-hidden="true">🏠</span><span class="nav__label">Resumen</span>
+      </button>
+      <button type="button" class="nav__item" data-view="subs">
+        <span class="nav__icon" aria-hidden="true">💳</span><span class="nav__label" data-long="Suscripciones">Suscrip.</span>
+      </button>
+      <button type="button" class="nav__item" data-view="accounts">
+        <span class="nav__icon" aria-hidden="true">🔑</span><span class="nav__label">Cuentas</span>
+      </button>
+      <button type="button" class="nav__item" data-view="devices">
+        <span class="nav__icon" aria-hidden="true">💻</span><span class="nav__label" data-long="Dispositivos">Equipos</span>
+      </button>
+      <button type="button" class="nav__item" data-view="webs">
+        <span class="nav__icon" aria-hidden="true">🌐</span><span class="nav__label">Webs</span>
+      </button>
+    </nav>
+
+    <main class="main" id="main" tabindex="-1">
+
+      <!-- ══ RESUMEN ══ -->
+      <section class="view" id="view-home" aria-labelledby="homeTitle">
+        <div class="view__head">
+          <h1 class="view__title" id="homeTitle">Resumen</h1>
+        </div>
+
+        <div class="card welcome" id="homeWelcome" hidden>
+          <p class="welcome__title">Tu vida digital, en un solo sitio</p>
+          <p class="welcome__text">Apunta tus suscripciones, cuentas, dispositivos y webs.
+            Todo se guarda solo en este navegador: nada sale de aquí.</p>
+          <div class="btn-row">
+            <button type="button" class="btn btn--primary" data-add="subs">Añadir una suscripción</button>
+            <button type="button" class="btn" id="btnWelcomeImport">Importar una copia</button>
+          </div>
+        </div>
+
+        <div class="home-grid">
+          <article class="card spend">
+            <h2 class="card__title">Gasto</h2>
+            <p class="spend__big"><span id="spendMonth">0 €</span><span class="spend__unit"> al mes</span></p>
+            <p class="spend__sub" id="spendYear">—</p>
+            <ul class="bars" id="spendCats"></ul>
+          </article>
+
+          <article class="card">
+            <h2 class="card__title">Próximos 30 días</h2>
+            <ul class="events" id="homeUpcoming"></ul>
+            <p class="card__empty" id="homeUpcomingEmpty">Nada a la vista: ni cobros, ni caducidades, ni garantías.</p>
+          </article>
+
+          <article class="card">
+            <h2 class="card__title">Seguridad</h2>
+            <p class="security__line" id="securityLine">—</p>
+            <ul class="events" id="securityList"></ul>
+          </article>
+
+          <div class="tiles" id="homeTiles"></div>
+        </div>
+      </section>
+
+      <!-- ══ SUSCRIPCIONES ══ -->
+      <section class="view" id="view-subs" hidden aria-labelledby="subsTitle">
+        <div class="view__head">
+          <div>
+            <h1 class="view__title" id="subsTitle">Suscripciones</h1>
+            <p class="view__sub" id="subsCount">—</p>
+          </div>
+          <button type="button" class="btn btn--primary" id="subsAdd" data-add="subs">+ Añadir</button>
+        </div>
+        <input type="search" class="search" id="subsSearch" data-search="subs"
+               placeholder="Buscar…" aria-label="Buscar suscripciones" autocomplete="off">
+        <div class="list" id="subsList"></div>
+        <div class="empty" id="subsEmpty" hidden>
+          <p class="empty__icon" aria-hidden="true">💳</p>
+          <p class="empty__title">Aún no hay suscripciones</p>
+          <p class="empty__text">Apunta lo que pagas cada mes o cada año —Netflix, Spotify, iCloud…— y verás cuánto suma.</p>
+        </div>
+      </section>
+
+      <!-- ══ CUENTAS ══ -->
+      <section class="view" id="view-accounts" hidden aria-labelledby="accountsTitle">
+        <div class="view__head">
+          <div>
+            <h1 class="view__title" id="accountsTitle">Cuentas</h1>
+            <p class="view__sub" id="accountsCount">—</p>
+          </div>
+          <button type="button" class="btn btn--primary" id="accountsAdd" data-add="accounts">+ Añadir</button>
+        </div>
+        <input type="search" class="search" id="accountsSearch" data-search="accounts"
+               placeholder="Buscar…" aria-label="Buscar cuentas" autocomplete="off">
+        <div class="list" id="accountsList"></div>
+        <div class="empty" id="accountsEmpty" hidden>
+          <p class="empty__icon" aria-hidden="true">🔑</p>
+          <p class="empty__title">Aún no hay cuentas</p>
+          <p class="empty__text">Apunta dónde tienes cuenta, con qué email y cómo se recupera. Sin contraseñas: para eso, un gestor de contraseñas.</p>
+        </div>
+      </section>
+
+      <!-- ══ DISPOSITIVOS ══ -->
+      <section class="view" id="view-devices" hidden aria-labelledby="devicesTitle">
+        <div class="view__head">
+          <div>
+            <h1 class="view__title" id="devicesTitle">Dispositivos</h1>
+            <p class="view__sub" id="devicesCount">—</p>
+          </div>
+          <button type="button" class="btn btn--primary" id="devicesAdd" data-add="devices">+ Añadir</button>
+        </div>
+        <input type="search" class="search" id="devicesSearch" data-search="devices"
+               placeholder="Buscar…" aria-label="Buscar dispositivos" autocomplete="off">
+        <div class="list" id="devicesList"></div>
+        <div class="empty" id="devicesEmpty" hidden>
+          <p class="empty__icon" aria-hidden="true">💻</p>
+          <p class="empty__title">Aún no hay dispositivos</p>
+          <p class="empty__text">Móviles, portátiles, relojes, router… con su modelo, fecha de compra y hasta cuándo dura la garantía.</p>
+        </div>
+      </section>
+
+      <!-- ══ DOMINIOS Y WEBS ══ -->
+      <section class="view" id="view-webs" hidden aria-labelledby="websTitle">
+        <div class="view__head">
+          <div>
+            <h1 class="view__title" id="websTitle">Dominios y webs</h1>
+            <p class="view__sub" id="websCount">—</p>
+          </div>
+          <button type="button" class="btn btn--primary" id="websAdd" data-add="webs">+ Añadir</button>
+        </div>
+        <input type="search" class="search" id="websSearch" data-search="webs"
+               placeholder="Buscar…" aria-label="Buscar dominios y webs" autocomplete="off">
+        <div class="list" id="websList"></div>
+        <div class="empty" id="websEmpty" hidden>
+          <p class="empty__icon" aria-hidden="true">🌐</p>
+          <p class="empty__title">Aún no hay webs</p>
+          <p class="empty__text">Dominios, webs, repositorios y apps publicadas, como las de GitHub Pages, con su fecha de caducidad.</p>
+        </div>
+      </section>
+
+      <!-- ══ AJUSTES ══ -->
+      <section class="view" id="view-settings" hidden aria-labelledby="settingsTitle">
+        <div class="view__head">
+          <h1 class="view__title" id="settingsTitle">Ajustes</h1>
+        </div>
+
+        <div class="card settings">
+          <h2 class="card__title">Apariencia</h2>
+          <label class="row">
+            <span>Tema</span>
+            <select id="setTheme">
+              <option value="dark">Oscuro</option>
+              <option value="light">Claro</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="card settings">
+          <h2 class="card__title">Copias de seguridad</h2>
+          <p class="settings__note" id="backupStatus">—</p>
+          <label class="row">
+            <span>Recordarme exportar</span>
+            <select id="setBackup">
+              <option value="0">Nunca</option>
+              <option value="7">Cada semana</option>
+              <option value="14">Cada 2 semanas</option>
+              <option value="30">Cada mes</option>
+            </select>
+          </label>
+          <div class="btn-row">
+            <button type="button" class="btn btn--primary" id="btnExportJson">Exportar copia</button>
+            <button type="button" class="btn" id="btnImport">Importar copia</button>
+            <button type="button" class="btn" id="btnExportCsv">Exportar a Excel (CSV)</button>
+          </div>
+          <p class="settings__note">Los datos viven solo en este navegador: el ordenador y el móvil
+            no se sincronizan, y borrar los datos de navegación los borra. Para pasar de uno a otro,
+            exporta aquí e importa allí.</p>
+        </div>
+
+        <div class="card settings">
+          <h2 class="card__title">Esta instalación</h2>
+          <!-- Botón propio: Chrome Android bloquea su menú "Instalar app" si
+               ya hay otra app instalada en alexlobar.github.io
+               (ver PWA-Android-ya-instalada.md). Solo aparece cuando el
+               navegador permite instalar. -->
+          <div class="row" id="installRow" hidden>
+            <span>Instalar en este dispositivo</span>
+            <button type="button" class="btn btn--primary" id="btnInstall">Instalar la app</button>
+          </div>
+          <div class="row build">
+            <span class="build__left">
+              <span>Versión</span>
+              <span class="build__line" id="buildQuota"></span>
+              <span class="build__line" id="buildPersist" hidden></span>
+            </span>
+            <span class="build__value" id="buildCache">—</span>
+          </div>
+          <p class="settings__note" id="buildHint" hidden></p>
+        </div>
+
+        <div class="card settings">
+          <h2 class="card__title">Borrar</h2>
+          <p class="settings__note">Borra todo lo apuntado en este navegador. Exporta antes una copia.</p>
+          <div class="btn-row">
+            <button type="button" class="btn btn--danger" id="btnReset">Borrar todos los datos</button>
+          </div>
+        </div>
+
+        <p class="privacy">🔒 Aquí no se guardan contraseñas ni números de tarjeta: los datos del
+          navegador no van cifrados. Para eso, usa un gestor de contraseñas.</p>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ══ FORMULARIO ══
+       Uno solo para los cuatro tipos: los campos se crean desde
+       VD.utils.KINDS al abrirlo. -->
+  <dialog class="modal" id="itemModal" aria-labelledby="itemTitle">
+    <form class="modal__form" id="itemForm" novalidate>
+      <header class="modal__head">
+        <h2 class="modal__title" id="itemTitle">—</h2>
+        <button type="button" class="icon-btn" id="btnItemClose" aria-label="Cerrar">✕</button>
+      </header>
+      <div class="modal__body" id="itemFields"></div>
+      <p class="form-error" id="itemError" role="alert" hidden></p>
+      <footer class="modal__foot">
+        <button type="button" class="btn btn--ghost-danger" id="btnItemDelete">Borrar</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="btnItemCancel">Cancelar</button>
+        <button type="submit" class="btn btn--primary">Guardar</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+
+  <!-- Orden de carga = orden de dependencia: utils → store → calc → ui → app -->
+  <script src="js/utils.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/calc.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

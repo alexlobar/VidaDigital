@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Vida digital">
+  <rect width="512" height="512" rx="112" fill="#0d1117"/>
+  <!-- Margen amplio: en Android el icono maskable se recorta en círculo.
+       Un nodo central y los cuatro tipos alrededor: suscripciones (ámbar),
+       cuentas (violeta), dispositivos (azul) y webs (verde). -->
+  <circle cx="256" cy="256" r="110" fill="none" stroke="#2dd4bf" stroke-width="14" opacity=".35"/>
+  <path d="M256 256V146M256 256h110M256 256v110M256 256H146" stroke="#2dd4bf" stroke-width="14" stroke-linecap="round" opacity=".55"/>
+  <circle cx="256" cy="146" r="36" fill="#f59e0b"/>
+  <circle cx="366" cy="256" r="36" fill="#8b5cf6"/>
+  <circle cx="256" cy="366" r="36" fill="#38bdf8"/>
+  <circle cx="146" cy="256" r="36" fill="#22c55e"/>
+  <circle cx="256" cy="256" r="50" fill="#2dd4bf"/>
+</svg>

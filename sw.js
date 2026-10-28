@@ -1,0 +1,85 @@
+/* ============================================================
+   sw.js — Service worker mínimo: precarga el shell y sirve
+   desde caché para que la app funcione sin conexión.
+   Sube el número de CACHE al cambiar cualquier archivo.
+   ============================================================ */
+/* Este número tiene que coincidir con VERSION en js/utils.js y con
+   data-build en index.html. Cambiarlo es lo que obliga al móvil a
+   descargar la versión nueva. */
+const CACHE = 'vida-digital-v1.0.0';
+/* Todas las apps de alexlobar.github.io comparten el almacén de cachés:
+   al actualizar, solo se borran las de esta app (las que empiezan así). */
+const PREFIX = 'vida-digital-v';
+
+const ASSETS = [
+  './',
+  './index.html',
+  './manifest.json',
+  './icon.svg',
+  './icon-180.png',
+  './icon-192.png',
+  './icon-512.png',
+  './icon-maskable-512.png',
+  './css/styles.css',
+  './js/utils.js',
+  './js/store.js',
+  './js/calc.js',
+  './js/ui.js',
+  './js/app.js'
+];
+
+self.addEventListener('install', function (event) {
+  event.waitUntil(
+    caches.open(CACHE)
+      // 'reload' salta la caché HTTP del navegador (GitHub Pages da 10 min):
+      // sin esto, una versión subida poco después de la anterior podía
+      // guardar en la caché nueva archivos de la vieja.
+      .then(function (cache) {
+        return cache.addAll(ASSETS.map(function (url) {
+          return new Request(url, { cache: 'reload' });
+        }));
+      })
+      .then(function () { return self.skipWaiting(); })
+  );
+});
+
+self.addEventListener('activate', function (event) {
+  event.waitUntil(
+    caches.keys()
+      .then(function (keys) {
+        return Promise.all(keys
+          .filter(function (k) { return k.indexOf(PREFIX) === 0 && k !== CACHE; })
+          .map(function (k) { return caches.delete(k); }));
+      })
+      .then(function () { return self.clients.claim(); })
+  );
+});
+
+self.addEventListener('fetch', function (event) {
+  const request = event.request;
+
+  // Solo se cachean lecturas del propio origen.
+  if (request.method !== 'GET') return;
+  if (new URL(request.url).origin !== self.location.origin) return;
+
+  event.respondWith(
+    caches.match(request).then(function (cached) {
+      if (cached) return cached;
+
+      return fetch(request)
+        .then(function (response) {
+          // Las respuestas opacas o con error no se guardan.
+          if (!response || response.status !== 200 || response.type !== 'basic') return response;
+
+          const copy = response.clone();
+          caches.open(CACHE).then(function (cache) { cache.put(request, copy); });
+          return response;
+        })
+        .catch(function () {
+          // Sin red y sin caché: al menos se devuelve el shell para las navegaciones.
+          if (request.mode === 'navigate') return caches.match('./index.html');
+          throw new Error('Recurso no disponible sin conexión');
+        });
+    })
+  );
+});

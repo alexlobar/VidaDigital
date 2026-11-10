@@ -14,11 +14,20 @@ VD.calc = (function () {
     return U.periodById(sub.period) || U.PERIODS[0];
   }
 
-  /** Lo que cuesta una suscripción al mes, prorrateado. Las inactivas, 0. */
+  /**
+   * Lo que pagas tú en cada cobro: tu parte si es compartida, si no el
+   * precio entero. Tu parte vacía (null) es "pago todo"; 0 es "me la pagan".
+   */
+  function myAmount(sub) {
+    return sub.myPrice !== null ? sub.myPrice : sub.price;
+  }
+
+  /** Lo que te cuesta una suscripción al mes, prorrateado. Las inactivas, 0. */
   function monthly(sub) {
-    if (!sub.active || !sub.price) return 0;
+    const amount = myAmount(sub);
+    if (!sub.active || !amount) return 0;
     const p = periodOf(sub);
-    return p.weeks ? sub.price * 52 / 12 / p.weeks : sub.price / p.months;
+    return p.weeks ? amount * 52 / 12 / p.weeks : amount / p.months;
   }
 
   /**
@@ -63,10 +72,12 @@ VD.calc = (function () {
     const byCat = {};
     let subsMonth = 0;
     let active = 0;
+    let shared = 0;
 
     state.subs.forEach(function (s) {
       const m = monthly(s);
       if (s.active) active++;
+      if (s.active && s.myPrice !== null) shared++;
       if (!m) return;
       subsMonth += m;
       byCat[s.category] = (byCat[s.category] || 0) + m;
@@ -85,6 +96,7 @@ VD.calc = (function () {
       month: subsMonth + websYear / 12,
       year: subsMonth * 12 + websYear,
       activeSubs: active,
+      sharedSubs: shared,
       categories: categories
     };
   }
@@ -100,10 +112,21 @@ VD.calc = (function () {
 
     state.subs.forEach(function (s) {
       if (!s.active) return;
+
+      // La prueba gratis va primero: el aviso sirve antes del cobro, no después.
+      if (s.trialEnd && s.trialEnd >= today && s.trialEnd <= until) {
+        out.push({ date: s.trialEnd, kind: 'subs', item: s, soon: true,
+                   text: 'Acaba la prueba gratis: date de baja si no la quieres' });
+      }
+
       const date = nextCharge(s, today);
-      if (!date || date > until) return;
-      out.push({ date: date, kind: 'subs', item: s,
-                 text: s.price ? 'Cobro de ' + U.money(s.price) : 'Renovación' });
+      if (!date || date > until || date === s.trialEnd) return;
+      let text = 'Renovación';
+      if (s.price) {
+        text = 'Cobro de ' + U.money(s.price);
+        if (s.myPrice !== null && s.myPrice !== s.price) text += ' (tu parte ' + U.money(s.myPrice) + ')';
+      }
+      out.push({ date: date, kind: 'subs', item: s, text: text });
     });
 
     state.webs.forEach(function (w) {
@@ -124,13 +147,25 @@ VD.calc = (function () {
     return out.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
   }
 
-  /** Cuentas sin verificación en dos pasos; las importantes, primero. */
+  /**
+   * Cuentas sin verificación en dos pasos; las importantes, primero. Las
+   * borradas no cuentan; las que vas a borrar sí, porque aún existen.
+   */
   function security(state) {
-    const without = state.accounts.filter(function (a) { return a.twofa === 'no'; });
+    const alive = state.accounts.filter(function (a) { return a.status !== 'borrada'; });
+    const without = alive.filter(function (a) { return a.twofa === 'no'; });
     return {
-      total: state.accounts.length,
+      total: alive.length,
       without: without.length,
       important: without.filter(function (a) { return a.important; })
+    };
+  }
+
+  /** Cuentas que quieres borrar y las que ya borraste. */
+  function cleanup(state) {
+    return {
+      pending: state.accounts.filter(function (a) { return a.status === 'borrar'; }),
+      done: state.accounts.filter(function (a) { return a.status === 'borrada'; }).length
     };
   }
 
@@ -153,7 +188,7 @@ VD.calc = (function () {
   }
 
   return {
-    monthly: monthly, nextCharge: nextCharge, nextExpiry: nextExpiry,
-    totals: totals, upcoming: upcoming, security: security, migration: migration
+    myAmount: myAmount, monthly: monthly, nextCharge: nextCharge, nextExpiry: nextExpiry,
+    totals: totals, upcoming: upcoming, security: security, cleanup: cleanup, migration: migration
   };
 })();

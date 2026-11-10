@@ -2,7 +2,7 @@
 <!-- data-build tiene que coincidir con VERSION en js/utils.js y con CACHE en
      sw.js. Si el navegador sirve un index.html de una versión y unos .js de
      otra, la app lo detecta y avisa en vez de quedarse sin responder. -->
-<html lang="es" data-theme="dark" data-build="1.1.0">
+<html lang="es" data-theme="dark" data-build="2.0.0">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -38,30 +38,9 @@
       </button>
     </header>
 
-    <!-- ══ NAVEGACIÓN ══
-         Abajo en el móvil, a la izquierda en pantallas anchas. Ajustes no
-         está aquí: se entra por el engranaje de la cabecera. -->
-    <nav class="nav" aria-label="Secciones">
-      <button type="button" class="nav__item" data-view="home">
-        <span class="nav__icon" aria-hidden="true">🏠</span><span class="nav__label">Resumen</span>
-      </button>
-      <button type="button" class="nav__item" data-view="subs">
-        <span class="nav__icon" aria-hidden="true">💳</span><span class="nav__label" data-long="Suscripciones">Suscrip.</span>
-      </button>
-      <button type="button" class="nav__item" data-view="accounts">
-        <span class="nav__icon" aria-hidden="true">🔑</span><span class="nav__label">Cuentas</span>
-      </button>
-      <button type="button" class="nav__item" data-view="apps">
-        <span class="nav__icon" aria-hidden="true">📲</span><span class="nav__label">Apps</span>
-      </button>
-      <button type="button" class="nav__item" data-view="devices">
-        <span class="nav__icon" aria-hidden="true">💻</span><span class="nav__label" data-long="Dispositivos">Equipos</span>
-      </button>
-      <button type="button" class="nav__item" data-view="webs">
-        <span class="nav__icon" aria-hidden="true">🌐</span><span class="nav__label">Webs</span>
-      </button>
-    </nav>
-
+    <!-- No hay barra de navegación desde la 2.0.0: el Resumen es el menú
+         (sus recuadros llevan a cada sección), cada sección tiene ‹ para
+         volver y el logo de la cabecera también vuelve al Resumen. -->
     <main class="main" id="main" tabindex="-1">
 
       <!-- ══ RESUMEN ══ -->
@@ -72,13 +51,16 @@
 
         <div class="card welcome" id="homeWelcome" hidden>
           <p class="welcome__title">Tu vida digital, en un solo sitio</p>
-          <p class="welcome__text">Apunta tus suscripciones, cuentas, dispositivos y webs.
+          <p class="welcome__text">Apunta tus suscripciones, cuentas, apps, dispositivos y webs.
             Todo se guarda solo en este navegador: nada sale de aquí.</p>
           <div class="btn-row">
             <button type="button" class="btn btn--primary" data-add="subs">Añadir una suscripción</button>
             <button type="button" class="btn" id="btnWelcomeImport">Importar una copia</button>
           </div>
         </div>
+
+        <!-- El menú: un recuadro por sección, con lo más importante de cada una. -->
+        <nav class="tiles" id="homeTiles" aria-label="Secciones"></nav>
 
         <div class="home-grid">
           <!-- Solo aparece si hay apps apuntadas: es el progreso del cambio
@@ -115,14 +97,20 @@
             <ul class="events" id="securityList"></ul>
           </article>
 
-          <div class="tiles" id="homeTiles"></div>
+          <!-- Solo si hay cuentas marcadas como "Quiero borrarla". -->
+          <article class="card" id="cleanupCard" hidden>
+            <h2 class="card__title">Cuentas para borrar</h2>
+            <p class="security__line" id="cleanupLine">—</p>
+            <ul class="events" id="cleanupList"></ul>
+          </article>
         </div>
       </section>
 
       <!-- ══ SUSCRIPCIONES ══ -->
       <section class="view" id="view-subs" hidden aria-labelledby="subsTitle">
         <div class="view__head">
-          <div>
+          <button type="button" class="icon-btn back" data-back aria-label="Volver al resumen" title="Volver">‹</button>
+          <div class="view__heading">
             <h1 class="view__title" id="subsTitle">Suscripciones</h1>
             <p class="view__sub" id="subsCount">—</p>
           </div>
@@ -141,7 +129,8 @@
       <!-- ══ CUENTAS ══ -->
       <section class="view" id="view-accounts" hidden aria-labelledby="accountsTitle">
         <div class="view__head">
-          <div>
+          <button type="button" class="icon-btn back" data-back aria-label="Volver al resumen" title="Volver">‹</button>
+          <div class="view__heading">
             <h1 class="view__title" id="accountsTitle">Cuentas</h1>
             <p class="view__sub" id="accountsCount">—</p>
           </div>
@@ -160,7 +149,8 @@
       <!-- ══ APPS ══ -->
       <section class="view" id="view-apps" hidden aria-labelledby="appsTitle">
         <div class="view__head">
-          <div>
+          <button type="button" class="icon-btn back" data-back aria-label="Volver al resumen" title="Volver">‹</button>
+          <div class="view__heading">
             <h1 class="view__title" id="appsTitle">Apps</h1>
             <p class="view__sub" id="appsCount">—</p>
           </div>
@@ -179,7 +169,8 @@
       <!-- ══ DISPOSITIVOS ══ -->
       <section class="view" id="view-devices" hidden aria-labelledby="devicesTitle">
         <div class="view__head">
-          <div>
+          <button type="button" class="icon-btn back" data-back aria-label="Volver al resumen" title="Volver">‹</button>
+          <div class="view__heading">
             <h1 class="view__title" id="devicesTitle">Dispositivos</h1>
             <p class="view__sub" id="devicesCount">—</p>
           </div>
@@ -198,7 +189,8 @@
       <!-- ══ DOMINIOS Y WEBS ══ -->
       <section class="view" id="view-webs" hidden aria-labelledby="websTitle">
         <div class="view__head">
-          <div>
+          <button type="button" class="icon-btn back" data-back aria-label="Volver al resumen" title="Volver">‹</button>
+          <div class="view__heading">
             <h1 class="view__title" id="websTitle">Dominios y webs</h1>
             <p class="view__sub" id="websCount">—</p>
           </div>
@@ -217,7 +209,8 @@
       <!-- ══ AJUSTES ══ -->
       <section class="view" id="view-settings" hidden aria-labelledby="settingsTitle">
         <div class="view__head">
-          <h1 class="view__title" id="settingsTitle">Ajustes</h1>
+          <button type="button" class="icon-btn back" data-back aria-label="Volver al resumen" title="Volver">‹</button>
+          <h1 class="view__title view__heading" id="settingsTitle">Ajustes</h1>
         </div>
 
         <div class="card settings">
@@ -311,8 +304,9 @@
 
   <div class="toast-stack" id="toastStack" aria-live="polite"></div>
 
-  <!-- Orden de carga = orden de dependencia: utils → store → calc → ui → app -->
+  <!-- Orden de carga = orden de dependencia: utils → logos → store → calc → ui → app -->
   <script src="js/utils.js"></script>
+  <script src="js/logos.js"></script>
   <script src="js/store.js"></script>
   <script src="js/calc.js"></script>
   <script src="js/ui.js"></script>

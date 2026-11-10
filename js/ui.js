@@ -31,7 +31,7 @@ VD.ui = (function () {
       'spendMonth', 'spendYear', 'spendCats',
       'homeUpcoming', 'homeUpcomingEmpty', 'securityLine', 'securityList', 'homeTiles',
       'migrationCard', 'migrationLine', 'migrationTrack', 'migrationFill', 'migrationList',
-      'migrationActions', 'btnResetMigration',
+      'migrationActions', 'btnResetMigration', 'cleanupCard', 'cleanupLine', 'cleanupList',
       'itemModal', 'itemForm', 'itemTitle', 'itemFields', 'itemError',
       'btnItemClose', 'btnItemDelete', 'btnItemCancel',
       'setTheme', 'setBackup', 'backupStatus',
@@ -54,8 +54,11 @@ VD.ui = (function () {
     missingIds.forEach(function (id) { els[id] = document.createElement(id.indexOf('view-') === 0 ? 'section' : 'span'); });
     if (missingIds.length) console.error('Faltan estos elementos en index.html: ' + missingIds.join(', '));
 
-    els.navItems = U.$$('.nav__item');
     els.themeMeta = $('meta[name="theme-color"]');
+
+    // Sugerencias del campo Logo: todas las marcas que la app sabe dibujar.
+    document.body.appendChild(el('datalist', { id: 'logoTitles' },
+      VD.logos.titles().map(function (t) { return el('option', { value: t }); })));
   }
 
   function getMissingIds() { return missingIds.slice(); }
@@ -65,10 +68,6 @@ VD.ui = (function () {
   function showView(name) {
     if (VIEWS.indexOf(name) < 0) name = 'home';
     VIEWS.forEach(function (v) { els['view-' + v].hidden = v !== name; });
-    els.navItems.forEach(function (b) {
-      if (b.dataset.view === name) b.setAttribute('aria-current', 'page');
-      else b.removeAttribute('aria-current');
-    });
     window.scrollTo(0, 0);
     return name;
   }
@@ -97,9 +96,51 @@ VD.ui = (function () {
     return n === -1 ? 'ayer' : 'hace ' + (-n) + ' días';
   }
 
-  /** Fila pulsable que abre un elemento; la usan el resumen y la seguridad. */
+  /* ── Logos ────────────────────────────────────────────────
+     El de la marca si la app lo conoce (logos.js); si no, las iniciales
+     sobre un color que sale del nombre, para que cada elemento tenga
+     siempre el mismo y se distinga de sus vecinos. ─────────── */
+
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+
+  function initials(name) {
+    const words = String(name).trim().split(/\s+/).filter(Boolean);
+    const letters = words.length > 1 ? words[0][0] + words[1][0] : Array.from(words[0] || '?').slice(0, 2).join('');
+    return letters.toUpperCase();
+  }
+
+  function hueOf(name) {
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
+    return h;
+  }
+
+  function logoEl(item, size) {
+    const slug = VD.logos.find(item);
+    const logo = slug ? VD.logos.get(slug) : null;
+    const node = el('span', {
+      class: 'logo' + (size ? ' logo--' + size : ''), 'aria-hidden': 'true',
+      title: logo ? logo.title : null,
+      '--logo-bg': logo ? logo.bg : 'hsl(' + hueOf(item.name) + ' 42% 36%)',
+      '--logo-fg': logo ? logo.fg : '#FFFFFF'
+    });
+
+    if (logo && logo.path) {
+      const svg = document.createElementNS(SVG_NS, 'svg');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      const path = document.createElementNS(SVG_NS, 'path');
+      path.setAttribute('d', logo.path);
+      svg.appendChild(path);
+      node.appendChild(svg);
+    } else {
+      const text = logo ? logo.text : initials(item.name);
+      node.appendChild(el('span', { class: 'logo__text' + (text.length > 2 ? ' logo__text--long' : ''), text: text }));
+    }
+    return node;
+  }
+
+  /** Fila pulsable que abre un elemento; la usan las tarjetas del Resumen. */
   function rowButton(kindId, item, date, meta, tone) {
-    const kind = U.kindById(kindId);
     const d = date ? U.fromKey(date) : null;
     return el('button', {
       type: 'button', class: 'event' + (tone ? ' event--' + tone : ''),
@@ -108,9 +149,10 @@ VD.ui = (function () {
       d ? el('span', { class: 'event__date' }, [
         el('span', { class: 'event__day', text: String(d.getDate()) }),
         el('span', { class: 'event__month', text: fmtMonth.format(d).replace('.', '') })
-      ]) : el('span', { class: 'event__date event__date--icon', 'aria-hidden': 'true', text: catOf(kind, item).icon }),
+      ]) : null,
+      logoEl(item, 'sm'),
       el('span', { class: 'event__body' }, [
-        el('span', { class: 'event__name', text: (d ? catOf(kind, item).icon + ' ' : '') + item.name }),
+        el('span', { class: 'event__name', text: item.name }),
         el('span', { class: 'event__meta', text: meta })
       ])
     ]);
@@ -129,6 +171,7 @@ VD.ui = (function () {
     els.spendMonth.textContent = U.money(t.month);
     const sub = [U.money(t.year) + ' al año',
                  t.activeSubs + (t.activeSubs === 1 ? ' suscripción activa' : ' suscripciones activas')];
+    if (t.sharedSubs) sub.push('de las compartidas cuenta solo tu parte');
     if (t.websYear) sub.push('incluye ' + U.money(t.websYear) + ' al año de dominios');
     els.spendYear.textContent = sub.join(' · ');
 
@@ -151,7 +194,7 @@ VD.ui = (function () {
       const n = U.daysBetween(today, ev.date);
       els.homeUpcoming.appendChild(el('li', null, [
         rowButton(ev.kind, ev.item, ev.date, ev.text + ' · ' + relative(today, ev.date),
-                  ev.overdue ? 'danger' : n <= 3 ? 'warn' : '')
+                  ev.overdue ? 'danger' : ev.soon || n <= 3 ? 'warn' : '')
       ]));
     });
     els.homeUpcomingEmpty.hidden = events.length > 0;
@@ -174,15 +217,40 @@ VD.ui = (function () {
       });
     }
 
-    // Accesos a cada sección
+    // Cuentas para borrar
+    const clean = C.cleanup(state);
+    els.cleanupCard.hidden = !clean.pending.length;
+    els.cleanupList.textContent = '';
+    if (clean.pending.length) {
+      els.cleanupLine.textContent = clean.pending.length +
+        (clean.pending.length === 1 ? ' cuenta por borrar' : ' cuentas por borrar') +
+        (clean.done ? ' · ya has borrado ' + clean.done : '') +
+        '. Cuando la borres, márcala como «Ya la he borrado».';
+      clean.pending.slice().sort(byName).forEach(function (a) {
+        els.cleanupList.appendChild(el('li', null, [
+          rowButton('accounts', a, null, a.user || catOf(U.kindById('accounts'), a).name, '')
+        ]));
+      });
+    }
+
+    // El menú: un recuadro por sección con su dato más útil.
     els.homeTiles.textContent = '';
     U.KINDS.forEach(function (k) {
       els.homeTiles.appendChild(el('button', { type: 'button', class: 'tile', 'data-view': k.id }, [
         el('span', { class: 'tile__icon', 'aria-hidden': 'true', text: k.icon }),
-        el('span', { class: 'tile__num', text: String(state[k.id].length) }),
-        el('span', { class: 'tile__label', text: k.name })
+        el('span', { class: 'tile__label', text: k.name }),
+        el('span', { class: 'tile__meta', text: tileMeta(k, state[k.id]) }),
+        el('span', { class: 'tile__chevron', 'aria-hidden': 'true', text: '›' })
       ]));
     });
+  }
+
+  /** "3 · 16,98 €/mes": cuántos hay y el dato que más importa de la sección. */
+  function tileMeta(kind, all) {
+    if (!all.length) return 'Vacío';
+    const parts = countLine(kind, all).split(' · ');
+    parts[0] = String(all.length);
+    return parts.slice(0, 2).join(' · ');
   }
 
   /** Tarjeta "Cambio de móvil": progreso y lo que falta por pasar. */
@@ -220,22 +288,36 @@ VD.ui = (function () {
 
     if (kindId === 'subs') {
       const p = U.periodById(it.period);
-      if (it.price !== null) d.value = U.money(it.price) + ' / ' + p.short;
+      const mine = C.myAmount(it);
+      // Compartida: lo grande es lo que pagas tú; el precio entero, al lado.
+      if (mine !== null) d.value = U.money(mine) + ' / ' + p.short;
+      if (it.myPrice === 0) {
+        d.meta.push('Te la pagan' + (it.price ? ' (' + U.money(it.price) + ')' : ''));
+      } else if (it.myPrice !== null && it.price !== null && it.myPrice !== it.price) {
+        d.meta.push('Tu parte de ' + U.money(it.price));
+      }
+      if (it.sharedWith) d.meta.push('Con ' + it.sharedWith);
       if (!it.active) {
         d.dim = true;
         d.badge = { text: 'Inactiva', tone: 'muted' };
       } else {
+        if (it.trialEnd && it.trialEnd >= today) {
+          d.badge = { text: 'Prueba hasta ' + U.formatDate(it.trialEnd), tone: 'warn' };
+        }
         const next = C.nextCharge(it, today);
         if (next) d.meta.push('Próximo cobro ' + U.formatDate(next));
-        if (it.price && p.id !== 'mensual') d.meta.push('≈ ' + U.money(C.monthly(it)) + ' al mes');
+        if (mine && p.id !== 'mensual') d.meta.push('≈ ' + U.money(C.monthly(it)) + ' al mes');
       }
       if (it.account) d.meta.push(it.account);
 
     } else if (kindId === 'accounts') {
       if (it.user) d.meta.push(it.user);
-      if (it.recovery) d.meta.push('Recuperación: ' + it.recovery);
-      d.star = it.important;
-      d.badge = it.twofa === 'no'
+      if (it.recovery && it.status !== 'borrada') d.meta.push('Recuperación: ' + it.recovery);
+      d.star = it.important && it.status !== 'borrada';
+      d.dim = it.status === 'borrada';
+      if (it.status === 'borrada') d.badge = { text: 'Borrada', tone: 'muted' };
+      else if (it.status === 'borrar') d.badge = { text: 'Para borrar', tone: 'warn' };
+      else d.badge = it.twofa === 'no'
         ? { text: 'Sin 2FA', tone: it.important ? 'danger' : 'warn' }
         : { text: U.optionName(U.TWOFA, it.twofa), tone: 'ok' };
 
@@ -284,7 +366,7 @@ VD.ui = (function () {
       type: 'button', class: 'item' + (d.dim ? ' item--dim' : ''),
       'data-kind': kind.id, 'data-id': it.id
     }, [
-      el('span', { class: 'item__icon', 'aria-hidden': 'true', text: catOf(kind, it).icon }),
+      logoEl(it),
       el('span', { class: 'item__body' }, [
         el('span', { class: 'item__name' }, [
           it.name,
@@ -338,8 +420,11 @@ VD.ui = (function () {
       return head + ' · ' + U.money(m) + ' al mes';
     }
     if (kind.id === 'accounts') {
-      const no = all.filter(function (a) { return a.twofa === 'no'; }).length;
-      return head + (no ? ' · ' + no + ' sin 2FA' : ' · todas con 2FA');
+      const alive = all.filter(function (a) { return a.status !== 'borrada'; });
+      const no = alive.filter(function (a) { return a.twofa === 'no'; }).length;
+      const toDelete = alive.filter(function (a) { return a.status === 'borrar'; }).length;
+      return head + (no ? ' · ' + no + ' sin 2FA' : ' · todas con 2FA') +
+             (toDelete ? ' · ' + toDelete + ' para borrar' : '');
     }
     if (kind.id === 'apps') {
       const m = C.migration(S.getState());
@@ -424,7 +509,7 @@ VD.ui = (function () {
       input = el('textarea', { id: id, name: f.key, rows: '3', maxlength: '2000', placeholder: f.placeholder });
       input.value = value || '';
     } else {
-      const attrs = { id: id, name: f.key, placeholder: f.placeholder, autocomplete: 'off' };
+      const attrs = { id: id, name: f.key, placeholder: f.placeholder, autocomplete: 'off', list: f.list };
       if (f.type === 'date') attrs.type = 'date';
       // Texto y no type="number": así se puede escribir "9,99" con coma.
       else if (f.type === 'money') { attrs.type = 'text'; attrs.inputmode = 'decimal'; }

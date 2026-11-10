@@ -15,8 +15,8 @@ VD.utils = (function () {
      Aparece en otros dos sitios: CACHE en sw.js (un service worker no
      puede leer este archivo) y data-build en index.html. Si se
      desincronizan, la app lo avisa al arrancar. ──────────────── */
-  const VERSION = '1.1.0';
-  const BUILD_DATE = '2026-11-09';
+  const VERSION = '2.0.0';
+  const BUILD_DATE = '2026-11-10';
   /* Igual que PREFIX en sw.js. Único en alexlobar.github.io: no puede ser
      el comienzo del prefijo de otra app (ver Service-worker-cache.md). */
   const CACHE_PREFIX = 'vida-digital-v';
@@ -130,6 +130,21 @@ VD.utils = (function () {
     { id: 'email',   name: 'Código por email' }
   ];
 
+  /* Una cuenta que ya no usas sigue siendo una puerta abierta con tus
+     datos dentro: "Quiero borrarla" la apunta en la lista de limpieza. */
+  const ACCOUNT_STATUS = [
+    { id: 'uso',     name: 'La uso' },
+    { id: 'borrar',  name: 'Quiero borrarla' },
+    { id: 'borrada', name: 'Ya la he borrado' }
+  ];
+
+  /* Campo común a todos los tipos: casi siempre el logo sale solo por el
+     nombre o la web, y esto es para cuando no ("Móvil personal" → Apple). */
+  const LOGO_FIELD = {
+    key: 'logo', label: 'Logo', type: 'text', list: 'logoTitles', placeholder: 'Automático',
+    hint: 'Si no sale solo, escribe la marca: Apple, Google, BBVA…'
+  };
+
   const DEVICE_STATUS = [
     { id: 'uso',      name: 'En uso' },
     { id: 'guardado', name: 'Guardado' },
@@ -155,14 +170,18 @@ VD.utils = (function () {
         { key: 'category', label: 'Categoría', type: 'select', options: SUB_CATEGORIES, default: 'otros' },
         { key: 'price', label: 'Precio (€)', type: 'money', half: true },
         { key: 'period', label: 'Se paga', type: 'select', options: PERIODS, half: true },
-        { key: 'nextDate', label: 'Próximo cobro', type: 'date',
-          hint: 'Si la fecha ya pasó, la app calcula el siguiente cobro con la periodicidad.' },
+        { key: 'nextDate', label: 'Próximo cobro', type: 'date', half: true },
+        { key: 'trialEnd', label: 'Fin de la prueba gratis', type: 'date', half: true },
+        { key: 'sharedWith', label: 'Compartida con', type: 'text', half: true, placeholder: 'Ana, Luis…' },
+        { key: 'myPrice', label: 'Tu parte (€)', type: 'money', half: true,
+          hint: 'Vacío: pagas el precio entero. 0: te la pagan otros. Es lo que cuenta en tu gasto.' },
         { key: 'account', label: 'Cuenta asociada', type: 'text', placeholder: 'email o usuario' },
         { key: 'payment', label: 'Método de pago', type: 'text', placeholder: 'Tarjeta, PayPal, factura del móvil…',
           hint: 'Solo el nombre: nunca el número de la tarjeta.' },
         { key: 'active', label: 'Activa: cuenta en el gasto', type: 'check', default: true },
         { key: 'url', label: 'Web', type: 'url', placeholder: 'netflix.com' },
-        { key: 'notes', label: 'Notas', type: 'textarea', placeholder: 'Plan, quién más la usa, cómo darla de baja…' }
+        LOGO_FIELD,
+        { key: 'notes', label: 'Notas', type: 'textarea', placeholder: 'Plan, cómo darla de baja…' }
       ]
     },
     {
@@ -177,7 +196,9 @@ VD.utils = (function () {
         { key: 'recovery', label: 'Cómo recuperarla', type: 'text',
           placeholder: 'móvil, email alternativo, códigos guardados en…' },
         { key: 'important', label: 'Importante: perderla sería un problema', type: 'check', default: false },
+        { key: 'status', label: 'Estado', type: 'select', options: ACCOUNT_STATUS },
         { key: 'url', label: 'Web', type: 'url' },
+        LOGO_FIELD,
         { key: 'notes', label: 'Notas', type: 'textarea',
           hint: 'No apuntes contraseñas: aquí no van cifradas. Para eso, un gestor de contraseñas.' }
       ]
@@ -195,6 +216,7 @@ VD.utils = (function () {
         { key: 'transfer', label: 'Qué hay que pasar', type: 'text',
           placeholder: 'Copia de chats, autenticador, partidas…',
           hint: 'Lo que no se recupera solo al iniciar sesión.' },
+        LOGO_FIELD,
         { key: 'notes', label: 'Notas', type: 'textarea',
           placeholder: 'Pasos para migrarla, dónde está la copia…' }
       ]
@@ -212,6 +234,7 @@ VD.utils = (function () {
         { key: 'warrantyUntil', label: 'Garantía hasta', type: 'date', half: true },
         { key: 'price', label: 'Precio de compra (€)', type: 'money', half: true },
         { key: 'status', label: 'Estado', type: 'select', options: DEVICE_STATUS, half: true },
+        LOGO_FIELD,
         { key: 'notes', label: 'Notas', type: 'textarea', placeholder: 'Dónde está la factura, accesorios, a quién se lo prestaste…' }
       ]
     },
@@ -227,6 +250,7 @@ VD.utils = (function () {
         { key: 'expires', label: 'Caduca o se renueva', type: 'date', half: true },
         { key: 'price', label: 'Coste al año (€)', type: 'money', half: true },
         { key: 'autoRenew', label: 'Se renueva sola', type: 'check', default: false },
+        LOGO_FIELD,
         { key: 'notes', label: 'Notas', type: 'textarea' }
       ]
     }
@@ -403,7 +427,7 @@ VD.utils = (function () {
     version: VERSION, buildDate: buildDate, CACHE_PREFIX: CACHE_PREFIX,
     KINDS: KINDS, kindById: kindById,
     PERIODS: PERIODS, periodById: periodById,
-    TWOFA: TWOFA, DEVICE_STATUS: DEVICE_STATUS, LOGIN_METHODS: LOGIN_METHODS, MIGRATION: MIGRATION,
+    TWOFA: TWOFA, DEVICE_STATUS: DEVICE_STATUS, ACCOUNT_STATUS: ACCOUNT_STATUS, LOGIN_METHODS: LOGIN_METHODS, MIGRATION: MIGRATION,
     optionName: optionName, byId: byId,
     toKey: toKey, fromKey: fromKey, isValidKey: isValidKey, todayKey: todayKey,
     addDaysKey: addDaysKey, addMonthsKey: addMonthsKey, daysBetween: daysBetween,

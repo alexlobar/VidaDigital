@@ -72,14 +72,24 @@ VD.app = (function () {
      atrás del móvil te dejen donde estabas. ─────────────────── */
 
   function go(name, push) {
+    const from = view;
     view = UI.showView(name);
     const hash = view === 'home' ? '' : '#' + view;
     if (location.hash !== hash) {
       const url = location.pathname + location.search + hash;
-      if (push) history.pushState(null, '', url);
+      // Se apunta si se llegó desde el Resumen: así ‹ vuelve con el
+      // historial (y el botón atrás del móvil hace lo mismo) en vez de
+      // apilar otra entrada.
+      if (push) history.pushState({ fromHome: from === 'home' }, '', url);
       else history.replaceState(null, '', url);
     }
     if (view === 'settings') UI.renderBuildInfo();
+  }
+
+  /** ‹ de cada sección: vuelve al Resumen. */
+  function back() {
+    if (history.state && history.state.fromHome) history.back();
+    else go('home', false);
   }
 
   /* ── Formulario ───────────────────────────────────────────── */
@@ -288,9 +298,10 @@ VD.app = (function () {
     // Un solo manejador para todo lo que navega, añade o abre: los botones
     // de las listas y del resumen se crean y se destruyen en cada repintado.
     document.addEventListener('click', function (e) {
-      const t = e.target.closest('[data-view], [data-add], [data-migrate], .item[data-id], .event[data-id]');
+      const t = e.target.closest('[data-back], [data-view], [data-add], [data-migrate], .item[data-id], .event[data-id]');
       if (!t) return;
-      if (t.dataset.migrate) toggleMigrated(t.dataset.migrate);
+      if (t.hasAttribute('data-back')) back();
+      else if (t.dataset.migrate) toggleMigrated(t.dataset.migrate);
       else if (t.dataset.view) go(t.dataset.view, true);
       else if (t.dataset.add) UI.openForm(t.dataset.add, null);
       else openItem(t.dataset.kind, t.dataset.id);

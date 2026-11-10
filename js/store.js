@@ -21,6 +21,9 @@ VD.store = (function () {
      cuota que comparten todas las apps del dominio. */
   const MAX_LEN = { text: 80, url: 300, textarea: 2000 };
   const MAX_ITEMS = 1000;            // por tipo
+  const MAX_LINKS = 30;              // enlaces por elemento
+  const MAX_TAGS = 10;               // etiquetas por elemento
+  const MAX_TAG = 24;                // caracteres por etiqueta
   const THEMES = ['dark', 'light'];
   const BACKUP_DAYS = [0, 7, 14, 30];   // 0 = no recordar
 
@@ -54,6 +57,32 @@ VD.store = (function () {
         return U.isValidKey(value) ? value : null;
       case 'check':
         return typeof value === 'boolean' ? value : !!field.default;
+      case 'tags': {
+        // Lista o "trabajo, familia". Sin repetir, sin distinguir
+        // mayúsculas: "Trabajo" y "trabajo" son la misma etiqueta.
+        const raw = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : [];
+        const seen = {};
+        return raw.map(function (t) { return typeof t === 'string' ? t.trim().replace(/^#/, '').slice(0, MAX_TAG) : ''; })
+          .filter(function (t) {
+            const k = U.plain(t);
+            if (!k || seen[k]) return false;
+            seen[k] = true;
+            return true;
+          }).slice(0, MAX_TAGS);
+      }
+      case 'links': {
+        // "tipo:id", sin repetir. Que el elemento exista se comprueba
+        // después, cuando ya están saneadas todas las listas.
+        if (!Array.isArray(value)) return [];
+        const seen = {};
+        return value.filter(function (k) {
+          if (typeof k !== 'string' || seen[k]) return false;
+          const parts = k.split(':');
+          if (parts.length !== 2 || !U.kindById(parts[0]) || !parts[1] || parts[1].length > 40) return false;
+          seen[k] = true;
+          return true;
+        }).slice(0, MAX_LINKS);
+      }
       default:
         return typeof value === 'string' ? value.trim().slice(0, MAX_LEN[field.type] || MAX_LEN.text) : '';
     }
@@ -65,7 +94,9 @@ VD.store = (function () {
     const item = {
       id: typeof raw.id === 'string' && raw.id ? raw.id.slice(0, 40) : U.uid(kind.id),
       createdAt: U.isValidKey(raw.createdAt) ? raw.createdAt : U.todayKey(),
-      updatedAt: U.isValidKey(raw.updatedAt) ? raw.updatedAt : null
+      updatedAt: U.isValidKey(raw.updatedAt) ? raw.updatedAt : null,
+      // No es un campo del formulario: se cambia con el botón Archivar.
+      archived: raw.archived === true
     };
     kind.fields.forEach(function (f) { item[f.key] = cleanField(f, raw[f.key]); });
 
@@ -97,6 +128,20 @@ VD.store = (function () {
           return true;
         })
         .slice(0, MAX_ITEMS);
+    });
+
+    // Enlaces a elementos que ya no existen (borrados, o de una copia
+    // editada a mano) y enlaces de un elemento consigo mismo: fuera.
+    const exists = {};
+    U.KINDS.forEach(function (kind) {
+      out[kind.id].forEach(function (it) { exists[kind.id + ':' + it.id] = true; });
+    });
+    U.KINDS.forEach(function (kind) {
+      out[kind.id].forEach(function (it) {
+        if (!it.links) return;
+        const self = kind.id + ':' + it.id;
+        it.links = it.links.filter(function (k) { return exists[k] && k !== self; });
+      });
     });
 
     return out;
@@ -242,6 +287,34 @@ VD.store = (function () {
     return state[kindId].filter(function (it) { return it.id === id; })[0] || null;
   }
 
+  /** "subs:subs_abc" → { kind, item }, o null si ya no existe. */
+  function resolveLink(key) {
+    const parts = String(key).split(':');
+    if (!state[parts[0]]) return null;
+    const item = getItem(parts[0], parts[1]);
+    return item ? { kind: parts[0], item: item } : null;
+  }
+
+  /**
+   * Todo lo enlazado con un elemento, en los dos sentidos: lo que apunta
+   * él y lo que le apunta a él. Así enlazar desde la cuenta o desde la
+   * suscripción da lo mismo, y no hay que mantener dos copias al día.
+   */
+  function getLinked(kindId, id) {
+    const self = kindId + ':' + id;
+    const item = getItem(kindId, id);
+    const keys = item && item.links ? item.links.slice() : [];
+    U.KINDS.forEach(function (kind) {
+      state[kind.id].forEach(function (other) {
+        if (other.links && other.links.indexOf(self) >= 0) {
+          const k = kind.id + ':' + other.id;
+          if (keys.indexOf(k) < 0) keys.push(k);
+        }
+      });
+    });
+    return keys.map(resolveLink).filter(Boolean);
+  }
+
   /* ── Escritura ────────────────────────────────────────────── */
 
   /**
@@ -271,6 +344,21 @@ VD.store = (function () {
     if (prev) list[index] = item;
     else list.push(item);
 
+    // El formulario manda la lista completa de enlaces, en los dos
+    // sentidos. Lo que quitaste y estaba guardado en el otro elemento se
+    // borra allí también; si no, getLinked lo seguiría enseñando.
+    if (Array.isArray(data.links)) {
+      const self = kindId + ':' + item.id;
+      item.links = item.links.filter(function (k) { return k !== self; });
+      U.KINDS.forEach(function (kind) {
+        state[kind.id].forEach(function (other) {
+          if (!other.links || other.links.indexOf(self) < 0) return;
+          if (item.links.indexOf(kind.id + ':' + other.id) >= 0) return;
+          other.links = other.links.filter(function (k) { return k !== self; });
+        });
+      });
+    }
+
     commit('items', { kind: kindId });
     return item;
   }
@@ -295,17 +383,70 @@ VD.store = (function () {
   }
 
   /**
-   * Para el siguiente cambio de móvil: todo lo que se pasó vuelve a
-   * "Pendiente". Las marcadas como "No la paso" se quedan como están.
+   * Para el siguiente cambio de móvil (apps) u ordenador (programs): todo
+   * lo que se pasó vuelve a "Pendiente". Lo de "No la paso" se queda.
    */
-  function resetMigration() {
+  function resetMigration(kindId) {
     const today = U.todayKey();
-    state.apps.forEach(function (a) {
+    state[kindId].forEach(function (a) {
       if (a.migration === 'no' || a.migration === 'pendiente') return;
       a.migration = 'pendiente';
       a.updatedAt = today;
     });
-    commit('items', { kind: 'apps' });
+    commit('items', { kind: kindId });
+  }
+
+  /**
+   * Archivar no borra: el elemento deja de contar (gasto, avisos,
+   * progreso) y pasa al final de su lista, plegado. Se puede recuperar.
+   */
+  function setArchived(kindId, id, archived) {
+    const item = getItem(kindId, id);
+    if (!item) return null;
+    item.archived = !!archived;
+    item.updatedAt = U.todayKey();
+    commit('items', { kind: kindId });
+    return item;
+  }
+
+  /**
+   * Importación en bloque (desde Excel). Si en la misma sección ya hay un
+   * elemento con el mismo nombre, se completa con lo que traiga la fila
+   * (las celdas vacías no borran nada); si no, se crea. Un solo guardado.
+   */
+  function importItems(entries) {
+    const today = U.todayKey();
+    let added = 0;
+    let updated = 0;
+
+    entries.forEach(function (e) {
+      const kind = U.kindById(e.kind);
+      const list = state[e.kind];
+      const name = U.plain(e.data.name);
+      let index = -1;
+      for (let i = 0; i < list.length; i++) if (U.plain(list[i].name) === name) { index = i; break; }
+
+      if (index >= 0) {
+        const merged = Object.assign({}, list[index]);
+        Object.keys(e.data).forEach(function (k) {
+          // El nombre ya coincide: se queda como lo escribiste tú, no
+          // como venga en la hoja ("netflix" no pisa a "Netflix").
+          if (k === 'name') return;
+          const v = e.data[k];
+          if (v !== null && v !== undefined && v !== '' && !(Array.isArray(v) && !v.length)) merged[k] = v;
+        });
+        merged.updatedAt = today;
+        const item = cleanItem(kind, merged);
+        if (item) { list[index] = item; updated++; }
+      } else if (list.length < MAX_ITEMS) {
+        const item = cleanItem(kind, Object.assign({}, e.data, { id: U.uid(e.kind), createdAt: today, updatedAt: today }));
+        if (item) { list.push(item); added++; }
+      }
+    });
+
+    save(true);
+    emit('replace');
+    return { added: added, updated: updated };
   }
 
   function setSetting(key, value) {
@@ -343,9 +484,9 @@ VD.store = (function () {
   return {
     load: load, save: save, subscribe: subscribe,
     getState: getState, getSettings: getSettings, getLastError: getLastError,
-    getItems: getItems, getItem: getItem,
+    getItems: getItems, getItem: getItem, getLinked: getLinked, resolveLink: resolveLink,
     saveItem: saveItem, removeItem: removeItem, restoreItem: restoreItem,
-    resetMigration: resetMigration,
+    resetMigration: resetMigration, setArchived: setArchived, importItems: importItems,
     setSetting: setSetting, markExported: markExported,
     replaceState: replaceState, reset: reset,
     storageUse: storageUse,

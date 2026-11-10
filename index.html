@@ -2,7 +2,7 @@
 <!-- data-build tiene que coincidir con VERSION en js/utils.js y con CACHE en
      sw.js. Si el navegador sirve un index.html de una versión y unos .js de
      otra, la app lo detecta y avisa en vez de quedarse sin responder. -->
-<html lang="es" data-theme="dark" data-build="2.0.0">
+<html lang="es" data-theme="dark" data-build="2.2.0">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -49,12 +49,21 @@
           <h1 class="view__title" id="homeTitle">Resumen</h1>
         </div>
 
+        <!-- Buscador global: mientras tiene texto, sustituye al resto del
+             Resumen por los resultados de todas las secciones. -->
+        <input type="search" class="search search--global" id="globalSearch"
+               placeholder="Buscar en todo… (#etiqueta para filtrar)" aria-label="Buscar en todas las secciones"
+               autocomplete="off">
+        <div class="global-results" id="globalResults" hidden></div>
+
+        <div id="homeBody">
         <div class="card welcome" id="homeWelcome" hidden>
           <p class="welcome__title">Tu vida digital, en un solo sitio</p>
-          <p class="welcome__text">Apunta tus suscripciones, cuentas, apps, dispositivos y webs.
-            Todo se guarda solo en este navegador: nada sale de aquí.</p>
+          <p class="welcome__text">Apunta tus suscripciones, cuentas, apps, programas, dispositivos,
+            licencias, copias y webs. Todo se guarda solo en este navegador: nada sale de aquí.</p>
           <div class="btn-row">
             <button type="button" class="btn btn--primary" data-add="subs">Añadir una suscripción</button>
+            <button type="button" class="btn" data-import-excel>Importar desde Excel</button>
             <button type="button" class="btn" id="btnWelcomeImport">Importar una copia</button>
           </div>
         </div>
@@ -63,8 +72,9 @@
         <nav class="tiles" id="homeTiles" aria-label="Secciones"></nav>
 
         <div class="home-grid">
-          <!-- Solo aparece si hay apps apuntadas: es el progreso del cambio
-               de móvil, y mientras dura es lo primero que se quiere ver. -->
+          <!-- Las dos de cambio de equipo solo aparecen si hay apps o
+               programas apuntados: mientras dura el cambio, es lo primero
+               que se quiere ver. -->
           <article class="card migration" id="migrationCard" hidden>
             <h2 class="card__title">Cambio de móvil</h2>
             <p class="migration__line" id="migrationLine">—</p>
@@ -75,6 +85,19 @@
             <ul class="events" id="migrationList"></ul>
             <div class="btn-row" id="migrationActions" hidden>
               <button type="button" class="btn" id="btnResetMigration">Empezar otro cambio de móvil</button>
+            </div>
+          </article>
+
+          <article class="card migration" id="pcCard" hidden>
+            <h2 class="card__title">Cambio de ordenador</h2>
+            <p class="migration__line" id="pcLine">—</p>
+            <span class="bar__track migration__track" id="pcTrack" role="progressbar"
+                  aria-label="Programas migrados" aria-valuemin="0" aria-valuemax="100">
+              <span class="bar__fill" id="pcFill"></span>
+            </span>
+            <ul class="events" id="pcList"></ul>
+            <div class="btn-row" id="pcActions" hidden>
+              <button type="button" class="btn" id="btnResetPc">Empezar otro cambio de ordenador</button>
             </div>
           </article>
 
@@ -97,12 +120,20 @@
             <ul class="events" id="securityList"></ul>
           </article>
 
+          <!-- Solo si alguna copia está atrasada, toca esta semana o nunca se ha hecho. -->
+          <article class="card" id="copiesCard" hidden>
+            <h2 class="card__title">Copias de seguridad</h2>
+            <p class="security__line" id="copiesLine">—</p>
+            <ul class="events" id="copiesHomeList"></ul>
+          </article>
+
           <!-- Solo si hay cuentas marcadas como "Quiero borrarla". -->
           <article class="card" id="cleanupCard" hidden>
             <h2 class="card__title">Cuentas para borrar</h2>
             <p class="security__line" id="cleanupLine">—</p>
             <ul class="events" id="cleanupList"></ul>
           </article>
+        </div>
         </div>
       </section>
 
@@ -166,6 +197,26 @@
         </div>
       </section>
 
+      <!-- ══ PROGRAMAS ══ -->
+      <section class="view" id="view-programs" hidden aria-labelledby="programsTitle">
+        <div class="view__head">
+          <button type="button" class="icon-btn back" data-back aria-label="Volver al resumen" title="Volver">‹</button>
+          <div class="view__heading">
+            <h1 class="view__title" id="programsTitle">Programas</h1>
+            <p class="view__sub" id="programsCount">—</p>
+          </div>
+          <button type="button" class="btn btn--primary" id="programsAdd" data-add="programs">+ Añadir</button>
+        </div>
+        <input type="search" class="search" id="programsSearch" data-search="programs"
+               placeholder="Buscar… (prueba «pendiente»)" aria-label="Buscar programas" autocomplete="off">
+        <div class="list" id="programsList"></div>
+        <div class="empty" id="programsEmpty" hidden>
+          <p class="empty__icon" aria-hidden="true">🖥️</p>
+          <p class="empty__title">Aún no hay programas</p>
+          <p class="empty__text">Apunta los programas de tu ordenador —navegador, Office, Steam…— con lo que hay que pasar de cada uno. Al cambiar de ordenador, marca cada uno con ✓ cuando esté listo, y enlaza sus licencias para tenerlas a mano.</p>
+        </div>
+      </section>
+
       <!-- ══ DISPOSITIVOS ══ -->
       <section class="view" id="view-devices" hidden aria-labelledby="devicesTitle">
         <div class="view__head">
@@ -183,6 +234,46 @@
           <p class="empty__icon" aria-hidden="true">💻</p>
           <p class="empty__title">Aún no hay dispositivos</p>
           <p class="empty__text">Móviles, portátiles, relojes, router… con su modelo, fecha de compra y hasta cuándo dura la garantía.</p>
+        </div>
+      </section>
+
+      <!-- ══ LICENCIAS Y CLAVES ══ -->
+      <section class="view" id="view-licenses" hidden aria-labelledby="licensesTitle">
+        <div class="view__head">
+          <button type="button" class="icon-btn back" data-back aria-label="Volver al resumen" title="Volver">‹</button>
+          <div class="view__heading">
+            <h1 class="view__title" id="licensesTitle">Licencias y claves</h1>
+            <p class="view__sub" id="licensesCount">—</p>
+          </div>
+          <button type="button" class="btn btn--primary" id="licensesAdd" data-add="licenses">+ Añadir</button>
+        </div>
+        <input type="search" class="search" id="licensesSearch" data-search="licenses"
+               placeholder="Buscar…" aria-label="Buscar licencias" autocomplete="off">
+        <div class="list" id="licensesList"></div>
+        <div class="empty" id="licensesEmpty" hidden>
+          <p class="empty__icon" aria-hidden="true">🎟️</p>
+          <p class="empty__title">Aún no hay licencias</p>
+          <p class="empty__text">Office, Windows, juegos comprados fuera de Steam… Apunta dónde está cada clave para no buscarla el día que reinstales. La clave en sí, en un gestor de contraseñas.</p>
+        </div>
+      </section>
+
+      <!-- ══ COPIAS DE SEGURIDAD ══ -->
+      <section class="view" id="view-copies" hidden aria-labelledby="copiesTitle">
+        <div class="view__head">
+          <button type="button" class="icon-btn back" data-back aria-label="Volver al resumen" title="Volver">‹</button>
+          <div class="view__heading">
+            <h1 class="view__title" id="copiesTitle">Copias de seguridad</h1>
+            <p class="view__sub" id="copiesCount">—</p>
+          </div>
+          <button type="button" class="btn btn--primary" id="copiesAdd" data-add="copies">+ Añadir</button>
+        </div>
+        <input type="search" class="search" id="copiesSearch" data-search="copies"
+               placeholder="Buscar…" aria-label="Buscar copias" autocomplete="off">
+        <div class="list" id="copiesList"></div>
+        <div class="empty" id="copiesEmpty" hidden>
+          <p class="empty__icon" aria-hidden="true">💾</p>
+          <p class="empty__title">Aún no hay copias</p>
+          <p class="empty__text">Qué copias haces (fotos, documentos, chats…), dónde se guardan y cada cuánto. La app te avisa cuando toca otra, y con «Hecha hoy» la apuntas en un toque.</p>
         </div>
       </section>
 
@@ -240,6 +331,7 @@
             <button type="button" class="btn btn--primary" id="btnExportJson">Exportar copia</button>
             <button type="button" class="btn" id="btnImport">Importar copia</button>
             <button type="button" class="btn" id="btnExportCsv">Exportar a Excel (CSV)</button>
+            <button type="button" class="btn" data-import-excel>Importar desde Excel</button>
           </div>
           <p class="settings__note">Los datos viven solo en este navegador: el ordenador y el móvil
             no se sincronizan, y borrar los datos de navegación los borra. Para pasar de uno a otro,
@@ -295,6 +387,7 @@
       <p class="form-error" id="itemError" role="alert" hidden></p>
       <footer class="modal__foot">
         <button type="button" class="btn btn--ghost-danger" id="btnItemDelete">Borrar</button>
+        <button type="button" class="btn btn--ghost" id="btnItemArchive">Archivar</button>
         <span class="spacer"></span>
         <button type="button" class="btn" id="btnItemCancel">Cancelar</button>
         <button type="submit" class="btn btn--primary">Guardar</button>
@@ -302,13 +395,52 @@
     </form>
   </dialog>
 
+  <!-- ══ IMPORTAR DESDE EXCEL ══
+       Pegar celdas copiadas de Excel (llegan separadas por tabuladores) o
+       elegir un CSV. El formato es el mismo que el de "Exportar a Excel". -->
+  <dialog class="modal" id="importModal" aria-labelledby="importTitle">
+    <form class="modal__form" id="importForm" novalidate>
+      <header class="modal__head">
+        <h2 class="modal__title" id="importTitle">Importar desde Excel</h2>
+        <button type="button" class="icon-btn" id="btnImportClose" aria-label="Cerrar">✕</button>
+      </header>
+      <div class="modal__body modal__body--single">
+        <ol class="import-steps">
+          <li>Descarga la <button type="button" class="link-btn" id="btnImportTemplate">plantilla</button>
+            y ábrela en Excel. Es el mismo formato que <em>Exportar a Excel</em>.</li>
+          <li>Una fila por elemento. La columna <strong>tipo</strong> dice la sección
+            (suscripción, cuenta, app, programa, dispositivo, licencia, copia o web);
+            solo es obligatoria la columna del nombre (<strong>Servicio</strong>).</li>
+          <li>Selecciona las celdas, cabecera incluida, cópialas (Ctrl + C) y pégalas aquí.
+            O elige el archivo guardado como CSV.</li>
+        </ol>
+        <textarea class="import-text" id="importText" rows="8" spellcheck="false"
+                  placeholder="tipo	Servicio	Categoría	Precio…&#10;suscripción	Netflix	Vídeo y streaming	13,99"
+                  aria-label="Celdas pegadas desde Excel"></textarea>
+        <div class="row">
+          <label for="importKind">Si no hay columna «tipo», es todo de</label>
+          <select id="importKind"></select>
+        </div>
+        <p class="settings__note">Si ya existe algo con el mismo nombre en la misma sección, se completa
+          con lo que traiga la fila: las celdas vacías no borran nada. Los enlaces no se importan.</p>
+        <p class="import-result" id="importResult" role="status" hidden></p>
+      </div>
+      <footer class="modal__foot">
+        <button type="button" class="btn" id="btnImportFile">Elegir archivo CSV…</button>
+        <span class="spacer"></span>
+        <button type="submit" class="btn btn--primary" id="btnImportRun">Importar</button>
+      </footer>
+    </form>
+  </dialog>
+
   <div class="toast-stack" id="toastStack" aria-live="polite"></div>
 
-  <!-- Orden de carga = orden de dependencia: utils → logos → store → calc → ui → app -->
+  <!-- Orden de carga = orden de dependencia: utils → logos → store → calc → sheet → ui → app -->
   <script src="js/utils.js"></script>
   <script src="js/logos.js"></script>
   <script src="js/store.js"></script>
   <script src="js/calc.js"></script>
+  <script src="js/sheet.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/app.js"></script>
 </body>

@@ -15,7 +15,7 @@ VD.utils = (function () {
      Aparece en otros dos sitios: CACHE en sw.js (un service worker no
      puede leer este archivo) y data-build en index.html. Si se
      desincronizan, la app lo avisa al arrancar. ──────────────── */
-  const VERSION = '2.0.0';
+  const VERSION = '2.2.0';
   const BUILD_DATE = '2026-11-10';
   /* Igual que PREFIX en sw.js. Único en alexlobar.github.io: no puede ser
      el comienzo del prefijo de otra app (ver Service-worker-cache.md). */
@@ -145,6 +145,41 @@ VD.utils = (function () {
     hint: 'Si no sale solo, escribe la marca: Apple, Google, BBVA…'
   };
 
+  /* Enlaces con otros elementos: la suscripción de Netflix con su cuenta y
+     su app, una licencia con el equipo donde está activada… Se guardan en
+     un lado y se ven desde los dos (store.getLinked). */
+  const LINKS_FIELD = { key: 'links', label: 'Enlazado con', type: 'links' };
+
+  /* Etiquetas libres ("trabajo", "familia", "compartido con Ana"): cruzan
+     las secciones, que las categorías no. */
+  const TAGS_FIELD = {
+    key: 'tags', label: 'Etiquetas', type: 'tags', placeholder: 'trabajo, familia, compartido…',
+    hint: 'Separadas por comas. Filtran en cada sección y en el buscador.'
+  };
+
+  const PROGRAM_CATEGORIES = [
+    { id: 'navegador',    name: 'Navegadores',           icon: '🌐' },
+    { id: 'ofimatica',    name: 'Ofimática',             icon: '📝' },
+    { id: 'comunicacion', name: 'Comunicación',          icon: '💬' },
+    { id: 'multimedia',   name: 'Música y vídeo',        icon: '🎬' },
+    { id: 'juegos',       name: 'Juegos',                icon: '🎮' },
+    { id: 'creatividad',  name: 'Diseño, foto y vídeo',  icon: '🎨' },
+    { id: 'desarrollo',   name: 'Desarrollo',            icon: '🛠️' },
+    { id: 'seguridad',    name: 'Seguridad',             icon: '🛡️' },
+    { id: 'utilidades',   name: 'Utilidades',            icon: '🔧' },
+    { id: 'trabajo',      name: 'Trabajo',               icon: '💼' },
+    { id: 'otros',        name: 'Otros',                 icon: '📦' }
+  ];
+
+  /* Igual que MIGRATION, en masculino: "el programa". Mismos ids, así el
+     cálculo del progreso es el mismo para el móvil y el ordenador. */
+  const MIGRATION_PC = [
+    { id: 'pendiente', name: 'Pendiente' },
+    { id: 'instalada', name: 'Instalado, falta configurar o pasar datos' },
+    { id: 'lista',     name: 'Migrado' },
+    { id: 'no',        name: 'No lo paso' }
+  ];
+
   const DEVICE_STATUS = [
     { id: 'uso',      name: 'En uso' },
     { id: 'guardado', name: 'Guardado' },
@@ -153,11 +188,49 @@ VD.utils = (function () {
     { id: 'roto',     name: 'Roto' }
   ];
 
+  const LICENSE_CATEGORIES = [
+    { id: 'sistema',     name: 'Sistema operativo',      icon: '🖥️' },
+    { id: 'ofimatica',   name: 'Ofimática',              icon: '📝' },
+    { id: 'juegos',      name: 'Juegos',                 icon: '🎮' },
+    { id: 'creatividad', name: 'Diseño, foto y vídeo',   icon: '🎨' },
+    { id: 'seguridad',   name: 'Antivirus y VPN',        icon: '🛡️' },
+    { id: 'desarrollo',  name: 'Desarrollo',             icon: '🛠️' },
+    { id: 'otros',       name: 'Otras',                  icon: '📦' }
+  ];
+
+  const COPY_CATEGORIES = [
+    { id: 'fotos',       name: 'Fotos y vídeos',             icon: '📷' },
+    { id: 'documentos',  name: 'Documentos',                 icon: '📄' },
+    { id: 'movil',       name: 'Móvil completo',             icon: '📱' },
+    { id: 'ordenador',   name: 'Ordenador',                  icon: '💻' },
+    { id: 'chats',       name: 'Chats',                      icon: '💬' },
+    { id: 'claves',      name: 'Contraseñas y 2FA',          icon: '🔐' },
+    { id: 'apps',        name: 'Datos de apps',              icon: '🗂️' },
+    { id: 'otros',       name: 'Otras',                      icon: '📦' }
+  ];
+
+  /* Cada cuánto hay que hacer (o comprobar, si es automática) una copia. */
+  const COPY_FREQ = [
+    { id: 'mensual',    name: 'Cada mes',     days: 30 },
+    { id: 'semanal',    name: 'Cada semana',  days: 7 },
+    { id: 'diaria',     name: 'Cada día',     days: 1 },
+    { id: 'trimestral', name: 'Cada 3 meses', days: 91 },
+    { id: 'semestral',  name: 'Cada 6 meses', days: 182 },
+    { id: 'anual',      name: 'Cada año',     days: 365 }
+  ];
+
+  /* Una copia automática también se revisa: si el móvil dejó de subir
+     fotos hace medio año, la copia "automática" no existe. */
+  const COPY_METHODS = [
+    { id: 'manual', name: 'La hago yo' },
+    { id: 'auto',   name: 'Automática (solo comprobarla)' }
+  ];
+
   /* ── Tipos de elemento ────────────────────────────────────
      Cada tipo tiene su lista de campos. De esta tabla salen a la vez el
      formulario (ui.js), el saneado (store.js) y la exportación CSV: añadir
      un campo es añadir una línea aquí y nada más.
-     Tipos de campo: text, textarea, url, select, money, date, check.
+     Tipos de campo: text, textarea, url, select, money, date, check, tags, links.
      No hay campo de contraseña a propósito: localStorage no va cifrado y
      cualquier extensión o quien abra el navegador podría leerlo. ── */
   const KINDS = [
@@ -181,6 +254,8 @@ VD.utils = (function () {
         { key: 'active', label: 'Activa: cuenta en el gasto', type: 'check', default: true },
         { key: 'url', label: 'Web', type: 'url', placeholder: 'netflix.com' },
         LOGO_FIELD,
+        TAGS_FIELD,
+        LINKS_FIELD,
         { key: 'notes', label: 'Notas', type: 'textarea', placeholder: 'Plan, cómo darla de baja…' }
       ]
     },
@@ -199,6 +274,8 @@ VD.utils = (function () {
         { key: 'status', label: 'Estado', type: 'select', options: ACCOUNT_STATUS },
         { key: 'url', label: 'Web', type: 'url' },
         LOGO_FIELD,
+        TAGS_FIELD,
+        LINKS_FIELD,
         { key: 'notes', label: 'Notas', type: 'textarea',
           hint: 'No apuntes contraseñas: aquí no van cifradas. Para eso, un gestor de contraseñas.' }
       ]
@@ -217,8 +294,31 @@ VD.utils = (function () {
           placeholder: 'Copia de chats, autenticador, partidas…',
           hint: 'Lo que no se recupera solo al iniciar sesión.' },
         LOGO_FIELD,
+        TAGS_FIELD,
+        LINKS_FIELD,
         { key: 'notes', label: 'Notas', type: 'textarea',
           placeholder: 'Pasos para migrarla, dónde está la copia…' }
+      ]
+    },
+    {
+      id: 'programs', name: 'Programas', nav: 'Programas', one: 'programa',
+      add: 'Nuevo programa', edit: 'Editar programa', icon: '🖥️',
+      cats: PROGRAM_CATEGORIES,
+      fields: [
+        { key: 'name', label: 'Programa', type: 'text', required: true, placeholder: 'Chrome, Office, Steam, VS Code…' },
+        { key: 'category', label: 'Categoría', type: 'select', options: PROGRAM_CATEGORIES, default: 'otros' },
+        { key: 'migration', label: 'Cambio de ordenador', type: 'select', options: MIGRATION_PC },
+        { key: 'source', label: 'De dónde se instala', type: 'text', half: true,
+          placeholder: 'Web oficial, Microsoft Store…' },
+        { key: 'account', label: 'Cuenta o usuario', type: 'text', half: true },
+        { key: 'transfer', label: 'Qué hay que pasar', type: 'text',
+          placeholder: 'Ajustes, extensiones, partidas, activar la licencia…',
+          hint: 'Si tiene licencia, enlázala abajo y la tendrás a mano al reinstalar.' },
+        { key: 'url', label: 'Web de descarga', type: 'url' },
+        LOGO_FIELD,
+        TAGS_FIELD,
+        LINKS_FIELD,
+        { key: 'notes', label: 'Notas', type: 'textarea', placeholder: 'Versión, plugins, pasos de instalación…' }
       ]
     },
     {
@@ -235,7 +335,53 @@ VD.utils = (function () {
         { key: 'price', label: 'Precio de compra (€)', type: 'money', half: true },
         { key: 'status', label: 'Estado', type: 'select', options: DEVICE_STATUS, half: true },
         LOGO_FIELD,
+        TAGS_FIELD,
+        LINKS_FIELD,
         { key: 'notes', label: 'Notas', type: 'textarea', placeholder: 'Dónde está la factura, accesorios, a quién se lo prestaste…' }
+      ]
+    },
+    {
+      id: 'licenses', name: 'Licencias y claves', nav: 'Licencias', one: 'licencia',
+      add: 'Nueva licencia', edit: 'Editar licencia', icon: '🎟️',
+      cats: LICENSE_CATEGORIES,
+      fields: [
+        { key: 'name', label: 'Programa o juego', type: 'text', required: true,
+          placeholder: 'Office 2021, Windows 11 Pro, un juego…' },
+        { key: 'category', label: 'Categoría', type: 'select', options: LICENSE_CATEGORIES, default: 'otros' },
+        { key: 'keyWhere', label: 'Dónde está la clave', type: 'text',
+          placeholder: 'Correo de compra, caja, gestor de contraseñas…',
+          hint: 'Solo dónde encontrarla: la clave en sí, en un gestor de contraseñas.' },
+        { key: 'account', label: 'Cuenta asociada', type: 'text', half: true, placeholder: 'email o usuario' },
+        { key: 'seller', label: 'Dónde se compró', type: 'text', half: true, placeholder: 'Microsoft Store, Steam…' },
+        { key: 'purchaseDate', label: 'Fecha de compra', type: 'date', half: true },
+        { key: 'expires', label: 'Caduca', type: 'date', half: true },
+        { key: 'price', label: 'Precio (€)', type: 'money', half: true },
+        LOGO_FIELD,
+        TAGS_FIELD,
+        LINKS_FIELD,
+        { key: 'notes', label: 'Notas', type: 'textarea',
+          placeholder: 'Cuántos equipos admite, cómo se desactiva al cambiar de equipo…',
+          hint: 'Sin fecha de caducidad es una licencia para siempre.' }
+      ]
+    },
+    {
+      id: 'copies', name: 'Copias de seguridad', nav: 'Copias', one: 'copia',
+      add: 'Nueva copia de seguridad', edit: 'Editar copia de seguridad', icon: '💾',
+      cats: COPY_CATEGORIES,
+      fields: [
+        { key: 'name', label: 'Qué se copia', type: 'text', required: true,
+          placeholder: 'Fotos del móvil, carpeta Documentos, chats de WhatsApp…' },
+        { key: 'category', label: 'Categoría', type: 'select', options: COPY_CATEGORIES, default: 'otros' },
+        { key: 'where', label: 'Dónde se guarda', type: 'text',
+          placeholder: 'Google Fotos, disco externo, OneDrive…',
+          hint: 'Lo ideal: 3 copias, en 2 sitios distintos, 1 de ellas fuera de casa.' },
+        { key: 'method', label: 'Cómo se hace', type: 'select', options: COPY_METHODS },
+        { key: 'frequency', label: 'Hacerla o revisarla', type: 'select', options: COPY_FREQ, half: true },
+        { key: 'lastDate', label: 'Última vez', type: 'date', half: true },
+        LOGO_FIELD,
+        TAGS_FIELD,
+        LINKS_FIELD,
+        { key: 'notes', label: 'Notas', type: 'textarea', placeholder: 'Pasos, qué carpetas, dónde está el disco…' }
       ]
     },
     {
@@ -251,6 +397,8 @@ VD.utils = (function () {
         { key: 'price', label: 'Coste al año (€)', type: 'money', half: true },
         { key: 'autoRenew', label: 'Se renueva sola', type: 'check', default: false },
         LOGO_FIELD,
+        TAGS_FIELD,
+        LINKS_FIELD,
         { key: 'notes', label: 'Notas', type: 'textarea' }
       ]
     }
@@ -428,6 +576,7 @@ VD.utils = (function () {
     KINDS: KINDS, kindById: kindById,
     PERIODS: PERIODS, periodById: periodById,
     TWOFA: TWOFA, DEVICE_STATUS: DEVICE_STATUS, ACCOUNT_STATUS: ACCOUNT_STATUS, LOGIN_METHODS: LOGIN_METHODS, MIGRATION: MIGRATION,
+    COPY_FREQ: COPY_FREQ, COPY_METHODS: COPY_METHODS, MIGRATION_PC: MIGRATION_PC,
     optionName: optionName, byId: byId,
     toKey: toKey, fromKey: fromKey, isValidKey: isValidKey, todayKey: todayKey,
     addDaysKey: addDaysKey, addMonthsKey: addMonthsKey, daysBetween: daysBetween,

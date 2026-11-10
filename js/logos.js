@@ -315,7 +315,15 @@ VD.logos = (function () {
       }
     }
 
-    const words = [item.logo, item.name, item.model, item.account && item.account.split('@')[1]]
+    // "Fotos del móvil" en Google Fotos saca el logo de Google Fotos.
+    const places = [item.where, item.seller, item.provider];
+    for (let i = 0; i < places.length; i++) {
+      const hit = resolve(norm(places[i]));
+      if (hit) return hit;
+    }
+
+    const words = [item.logo, item.name, item.model, item.where, item.seller, item.provider,
+                   item.account && item.account.split('@')[1]]
       .join(' ').split(/[\s\-_/·,.@()]+/);
     for (let i = 0; i < words.length; i++) {
       const w = norm(words[i]);

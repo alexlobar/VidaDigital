@@ -67,8 +67,22 @@ VD.calc = (function () {
     return null;
   }
 
+  /**
+   * El estado sin lo archivado. Todos los cálculos empiezan por aquí: lo
+   * archivado se conserva, pero ya no suma, no avisa ni cuenta en ningún
+   * progreso.
+   */
+  function live(state) {
+    const out = {};
+    U.KINDS.forEach(function (k) {
+      out[k.id] = state[k.id].filter(function (it) { return !it.archived; });
+    });
+    return out;
+  }
+
   /** Gasto total. Los dominios con coste anual se suman prorrateados. */
   function totals(state) {
+    state = live(state);
     const byCat = {};
     let subsMonth = 0;
     let active = 0;
@@ -107,6 +121,7 @@ VD.calc = (function () {
    * renuevan solos se enseñan aunque ya hayan pasado (hasta 60 días).
    */
   function upcoming(state, today, days) {
+    state = live(state);
     const until = U.addDaysKey(today, days);
     const out = [];
 
@@ -138,6 +153,12 @@ VD.calc = (function () {
                    : 'Caduca: renueva a mano' });
     });
 
+    state.licenses.forEach(function (l) {
+      if (!l.expires || l.expires > until || l.expires < U.addDaysKey(today, -30)) return;
+      out.push({ date: l.expires, kind: 'licenses', item: l, overdue: l.expires < today,
+                 text: l.expires < today ? 'Caducó la licencia' : 'Caduca la licencia' });
+    });
+
     state.devices.forEach(function (d) {
       if (!d.warrantyUntil || d.warrantyUntil < today || d.warrantyUntil > until) return;
       if (d.status === 'vendido') return;
@@ -152,6 +173,7 @@ VD.calc = (function () {
    * borradas no cuentan; las que vas a borrar sí, porque aún existen.
    */
   function security(state) {
+    state = live(state);
     const alive = state.accounts.filter(function (a) { return a.status !== 'borrada'; });
     const without = alive.filter(function (a) { return a.twofa === 'no'; });
     return {
@@ -161,8 +183,47 @@ VD.calc = (function () {
     };
   }
 
+  /* ── Copias de seguridad ──────────────────────────────────
+     Cada copia tiene una frecuencia y la fecha de la última vez. Toca
+     cuando pasa la frecuencia; sin fecha, nunca se ha hecho (o nunca se
+     ha comprobado), que es justo lo que hay que arreglar. ───── */
+
+  const SOON_DAYS = 7;
+
+  /**
+   * { state: 'never' | 'late' | 'soon' | 'ok', due, days }
+   * `days` son los que faltan hasta que toque (negativos si ya tocó).
+   */
+  function copyStatus(copy, today) {
+    if (!copy.lastDate) return { state: 'never', due: null, days: null };
+    const freq = U.byId(U.COPY_FREQ, copy.frequency) || U.COPY_FREQ[0];
+    const due = U.addDaysKey(copy.lastDate, freq.days);
+    const days = U.daysBetween(today, due);
+    return { state: days < 0 ? 'late' : days <= SOON_DAYS ? 'soon' : 'ok', due: due, days: days };
+  }
+
+  /** Las que hay que atender, de la más urgente a la menos. */
+  function copies(state, today) {
+    state = live(state);
+    const pending = state.copies
+      .map(function (c) { return { item: c, status: copyStatus(c, today) }; })
+      .filter(function (x) { return x.status.state !== 'ok'; })
+      .sort(function (a, b) {
+        // Nunca hechas primero; luego por días que faltan (o que sobran).
+        const da = a.status.days === null ? -Infinity : a.status.days;
+        const db = b.status.days === null ? -Infinity : b.status.days;
+        return da - db;
+      });
+    return {
+      total: state.copies.length,
+      late: pending.filter(function (x) { return x.status.state !== 'soon'; }).length,
+      pending: pending
+    };
+  }
+
   /** Cuentas que quieres borrar y las que ya borraste. */
   function cleanup(state) {
+    state = live(state);
     return {
       pending: state.accounts.filter(function (a) { return a.status === 'borrar'; }),
       done: state.accounts.filter(function (a) { return a.status === 'borrada'; }).length
@@ -170,11 +231,13 @@ VD.calc = (function () {
   }
 
   /**
-   * Cómo va el cambio de móvil. Las que no se pasan no cuentan en el
-   * total: si no, el 100 % sería imposible.
+   * Cómo va el cambio de móvil (kindId 'apps') o de ordenador
+   * ('programs'). Lo que no se pasa no cuenta en el total: si no, el
+   * 100 % sería imposible.
    */
-  function migration(state) {
-    const counted = state.apps.filter(function (a) { return a.migration !== 'no'; });
+  function migration(state, kindId) {
+    state = live(state);
+    const counted = state[kindId || 'apps'].filter(function (a) { return a.migration !== 'no'; });
     const left = counted.filter(function (a) { return a.migration !== 'lista'; });
     return {
       total: counted.length,
@@ -189,6 +252,7 @@ VD.calc = (function () {
 
   return {
     myAmount: myAmount, monthly: monthly, nextCharge: nextCharge, nextExpiry: nextExpiry,
-    totals: totals, upcoming: upcoming, security: security, cleanup: cleanup, migration: migration
+    totals: totals, upcoming: upcoming, security: security, cleanup: cleanup, migration: migration,
+    copyStatus: copyStatus, copies: copies, live: live
   };
 })();

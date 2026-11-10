@@ -50,8 +50,10 @@ VD.app = (function () {
 
   function onStoreEvent(event, payload) {
     if (event === 'items') {
-      dirty[payload.kind] = true;
-      dirty.home = true;
+      // Todo: las filas enseñan los nombres de lo enlazado, que puede
+      // estar en otra sección (renombrar una cuenta cambia la fila de su
+      // suscripción). Son listas cortas; repintarlas cuesta poco.
+      dirty.all = true;
     } else if (event === 'settings') {
       dirty.settings = true;
     } else if (event === 'replace') {
@@ -129,26 +131,75 @@ VD.app = (function () {
     });
   }
 
-  /* ── Cambio de móvil ──────────────────────────────────────── */
+  /** Saltar desde el formulario a un elemento enlazado. */
+  function openLinked(kindId, id) {
+    const item = S.getItem(kindId, id);
+    if (!item) return;
+    if (UI.formDirty() && !window.confirm('Tienes cambios sin guardar en este formulario. ¿Descartarlos y abrir «' +
+                                          item.name + '»?')) return;
+    UI.openForm(kindId, item);
+  }
 
-  /** El ✓ de la lista: migrada ↔ pendiente. */
-  function toggleMigrated(id) {
-    const app = S.getItem('apps', id);
-    if (!app || app.migration === 'no') return;
-    const done = app.migration !== 'lista';
-    S.saveItem('apps', { id: id, migration: done ? 'lista' : 'pendiente' });
+  /* ── Copias de seguridad ──────────────────────────────────── */
 
-    const m = VD.calc.migration(S.getState());
+  /** «Hecha hoy»: apunta la fecha, con unos segundos para deshacerlo. */
+  function markCopyDone(id) {
+    const copy = S.getItem('copies', id);
+    if (!copy) return;
+    const before = copy.lastDate;
+    if (before === today) {
+      UI.toast('«' + copy.name + '» ya estaba apuntada hoy.', { icon: '💾' });
+      return;
+    }
+    S.saveItem('copies', { id: id, lastDate: today });
+    UI.toast((copy.method === 'auto' ? 'Comprobada hoy: «' : 'Copia hecha hoy: «') + copy.name + '».', {
+      type: 'success', icon: '💾',
+      action: { label: 'Deshacer', onClick: function () { S.saveItem('copies', { id: id, lastDate: before }); } }
+    });
+  }
+
+  /** Archivar o recuperar el elemento abierto. Con Deshacer, como borrar. */
+  function archiveOpen() {
+    const f = UI.formState();
+    const item = f.kind && f.id ? S.getItem(f.kind, f.id) : null;
+    if (!item) return;
+    const archive = !item.archived;
+    S.setArchived(f.kind, f.id, archive);
+    UI.closeForm();
+    UI.toast(archive ? '«' + item.name + '» archivado: ya no cuenta en el gasto ni en los avisos.'
+                     : '«' + item.name + '» vuelve a estar activo.', {
+      icon: archive ? '🗄️' : '↩️',
+      action: { label: 'Deshacer', onClick: function () { S.setArchived(f.kind, f.id, !archive); } }
+    });
+  }
+
+  /* ── Cambio de móvil y de ordenador ───────────────────────── */
+
+  const MOVES = {
+    apps: { all: '¡Todas las apps migradas!', what: 'las apps', next: 'cambio de móvil', icon: '📲', no: '«No la paso»' },
+    programs: { all: '¡Todos los programas migrados!', what: 'los programas', next: 'cambio de ordenador',
+                icon: '🖥️', no: '«No lo paso»' }
+  };
+
+  /** El ✓ de la lista: migrado ↔ pendiente. */
+  function toggleMigrated(kindId, id) {
+    const item = S.getItem(kindId, id);
+    if (!item || item.migration === 'no') return;
+    const done = item.migration !== 'lista';
+    S.saveItem(kindId, { id: id, migration: done ? 'lista' : 'pendiente' });
+
+    const m = VD.calc.migration(S.getState(), kindId);
     if (done && m.total && m.done === m.total) {
-      UI.toast('¡Todas las apps migradas!', { type: 'success', icon: '🎉' });
+      UI.toast(MOVES[kindId].all, { type: 'success', icon: '🎉' });
     }
   }
 
-  function resetMigration() {
-    if (!window.confirm('Todas las apps volverán a «Pendiente» para el siguiente cambio de móvil ' +
-                        '(las de «No la paso» se quedan como están). ¿Continuar?')) return;
-    S.resetMigration();
-    UI.toast('Listo para el siguiente cambio de móvil.', { type: 'success', icon: '📲' });
+  function resetMigration(kindId) {
+    const mv = MOVES[kindId];
+    if (!window.confirm('Todos ' + mv.what + ' volverán a «Pendiente» para el siguiente ' + mv.next +
+                        ' (lo marcado ' + mv.no + ' se queda como está). ¿Continuar?')) return;
+    S.resetMigration(kindId);
+    UI.toast('Listo para el siguiente ' + mv.next + '.', { type: 'success', icon: mv.icon });
   }
 
   /* ── Exportación e importación ────────────────────────────── */
@@ -178,40 +229,95 @@ VD.app = (function () {
     return /[",;\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   }
 
+  /** Filas → CSV con BOM y ";": Excel en español abre así los acentos bien y cada dato en su columna. */
+  function toCsv(rows) {
+    return '﻿' + rows.map(function (r) { return r.map(csvCell).join(';'); }).join('\r\n');
+  }
+
   /**
-   * Un solo archivo con todo. Las columnas salen de los campos de los cuatro
-   * tipos (sin repetir): cada fila rellena las suyas y deja el resto vacío.
+   * Un solo archivo con todo, con las columnas de sheet.js (las mismas que
+   * entiende Importar desde Excel): se puede editar y volver a importar.
    */
   function exportCsv() {
-    const cols = [];
-    U.KINDS.forEach(function (k) {
-      k.fields.forEach(function (f) {
-        if (!cols.some(function (c) { return c.key === f.key; })) cols.push({ key: f.key, label: f.label });
-      });
-    });
-
-    const rows = [['tipo'].concat(cols.map(function (c) { return c.label.replace(/ \(€\)$/, ''); }))];
-
+    const rows = [VD.sheet.header()];
     U.KINDS.forEach(function (k) {
       S.getItems(k.id).forEach(function (it) {
-        rows.push([k.one].concat(cols.map(function (c) {
-          const f = k.fields.filter(function (x) { return x.key === c.key; })[0];
-          if (!f) return '';
-          const v = it[f.key];
-          if (f.type === 'select') return U.optionName(f.options, v);
-          if (f.type === 'check') return v ? 'sí' : 'no';
-          // Coma decimal: es lo que espera Excel en español.
-          if (f.type === 'money') return v === null ? '' : String(v).replace('.', ',');
-          return v === null ? '' : v;
-        })));
+        const linked = S.getLinked(k.id, it.id).map(function (l) { return l.item.name; });
+        rows.push(VD.sheet.row(k, it, linked));
       });
     });
-
-    const csv = rows.map(function (r) { return r.map(csvCell).join(';'); }).join('\r\n');
-    // BOM + separador ';': Excel en español abre así los acentos bien y cada
-    // dato en su columna.
-    download('vida-digital-' + today + '.csv', '﻿' + csv, 'text/csv;charset=utf-8');
+    download('vida-digital-' + today + '.csv', toCsv(rows), 'text/csv;charset=utf-8');
     UI.toast('Datos exportados en CSV.', { type: 'success', icon: '↓' });
+  }
+
+  /* ── Importar desde Excel ─────────────────────────────────── */
+
+  function downloadTemplate() {
+    download('vida-digital-plantilla.csv', toCsv(VD.sheet.template()), 'text/csv;charset=utf-8');
+    UI.importResult('Plantilla descargada: ábrela en Excel, cambia los ejemplos por lo tuyo y pégalo aquí.');
+  }
+
+  function chooseCsv() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.csv,.tsv,.txt,text/csv,text/plain';
+    input.addEventListener('change', function () {
+      const file = input.files && input.files[0];
+      input.remove();
+      if (!file) return;
+      // Excel guarda "CSV (delimitado por comas)" en Windows-1252 y "CSV
+      // UTF-8" en UTF-8. Se lee como UTF-8 y, si salen caracteres
+      // imposibles (�), se vuelve a leer como Windows-1252.
+      read('utf-8');
+
+      function read(encoding) {
+        const reader = new FileReader();
+        reader.onload = function () {
+          const text = String(reader.result);
+          if (encoding === 'utf-8' && text.indexOf('�') >= 0) { read('windows-1252'); return; }
+          UI.els.importText.value = text;
+          UI.importResult('Archivo «' + file.name + '» cargado. Revisa y pulsa Importar.');
+        };
+        reader.onerror = function () { UI.importResult('No se pudo leer el archivo.', true); };
+        reader.readAsText(file, encoding);
+      }
+    });
+    input.style.display = 'none';
+    document.body.appendChild(input);
+    input.click();
+  }
+
+  function runImport(e) {
+    e.preventDefault();
+    const text = UI.els.importText.value;
+    if (!text.trim()) { UI.importResult('Pega primero las celdas copiadas de Excel o elige un CSV.', true); return; }
+
+    const res = VD.sheet.parse(text, UI.els.importKind.value || null);
+    const problems = res.skipped.slice(0, 4).map(function (s) { return 'fila ' + s.line + ': ' + s.reason; });
+    if (res.skipped.length > 4) problems.push('y ' + (res.skipped.length - 4) + ' más');
+
+    if (!res.entries.length) {
+      UI.importResult('No hay nada que importar. ' + problems.join(' · '), true);
+      return;
+    }
+
+    const byKind = {};
+    res.entries.forEach(function (en) { byKind[en.kind] = (byKind[en.kind] || 0) + 1; });
+    const summary = Object.keys(byKind).map(function (k) {
+      return byKind[k] + ' ' + (byKind[k] === 1 ? U.kindById(k).one : U.kindById(k).name.toLowerCase());
+    }).join(', ');
+
+    let msg = 'Se van a importar ' + res.entries.length + ' filas: ' + summary + '.';
+    if (res.skipped.length) msg += '\n\nSe saltan ' + res.skipped.length + ':\n' + problems.join('\n');
+    if (res.ignored.length) msg += '\n\nColumnas que no reconozco (se ignoran): ' + res.ignored.join(', ');
+    msg += '\n\nLo que ya exista con el mismo nombre se completa, no se duplica. ¿Continuar?';
+    if (!window.confirm(msg)) return;
+
+    const done = S.importItems(res.entries);
+    UI.els.importText.value = '';
+    UI.closeImport();
+    UI.toast('Importado: ' + done.added + ' nuevos' + (done.updated ? ' y ' + done.updated + ' completados' : '') + '.',
+             { type: 'success', icon: '📥', duration: 6000 });
   }
 
   function importJson() {
@@ -298,10 +404,17 @@ VD.app = (function () {
     // Un solo manejador para todo lo que navega, añade o abre: los botones
     // de las listas y del resumen se crean y se destruyen en cada repintado.
     document.addEventListener('click', function (e) {
-      const t = e.target.closest('[data-back], [data-view], [data-add], [data-migrate], .item[data-id], .event[data-id]');
+      const t = e.target.closest('[data-back], [data-view], [data-add], [data-migrate], [data-copy-done], ' +
+                                 '[data-open-id], [data-tag-filter], [data-toggle-archived], [data-import-excel], ' +
+                                 '.item[data-id], .event[data-id]');
       if (!t) return;
       if (t.hasAttribute('data-back')) back();
-      else if (t.dataset.migrate) toggleMigrated(t.dataset.migrate);
+      else if (t.hasAttribute('data-import-excel')) UI.openImport();
+      else if (t.dataset.tagFilter) { UI.setTagFilter(t.dataset.kind, t.dataset.tagFilter); UI.renderList(t.dataset.kind, today); }
+      else if (t.dataset.toggleArchived) { UI.toggleArchived(t.dataset.toggleArchived); UI.renderList(t.dataset.toggleArchived, today); }
+      else if (t.dataset.openId) openLinked(t.dataset.openKind, t.dataset.openId);
+      else if (t.dataset.copyDone) markCopyDone(t.dataset.copyDone);
+      else if (t.dataset.migrate) toggleMigrated(t.dataset.kind, t.dataset.migrate);
       else if (t.dataset.view) go(t.dataset.view, true);
       else if (t.dataset.add) UI.openForm(t.dataset.add, null);
       else openItem(t.dataset.kind, t.dataset.id);
@@ -316,10 +429,24 @@ VD.app = (function () {
       els[k.id + 'Search'].addEventListener('input', function () { UI.renderList(k.id, today); });
     });
 
+    els.globalSearch.addEventListener('input', function () { UI.renderGlobal(today); });
+    els.globalSearch.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { els.globalSearch.value = ''; UI.renderGlobal(today); }
+    });
+
     els.itemForm.addEventListener('submit', onFormSubmit);
     els.btnItemCancel.addEventListener('click', UI.closeForm);
     els.btnItemClose.addEventListener('click', UI.closeForm);
     els.btnItemDelete.addEventListener('click', deleteOpen);
+    els.btnItemArchive.addEventListener('click', archiveOpen);
+
+    els.importForm.addEventListener('submit', runImport);
+    els.btnImportClose.addEventListener('click', UI.closeImport);
+    els.btnImportTemplate.addEventListener('click', downloadTemplate);
+    els.btnImportFile.addEventListener('click', chooseCsv);
+    els.importModal.addEventListener('click', function (e) {
+      if (e.target === els.importModal) UI.closeImport();
+    });
     // Esc cierra el <dialog> solo; aquí se limpia el estado del formulario.
     els.itemModal.addEventListener('close', UI.closeForm);
     // Clic en el fondo oscuro: el propio <dialog> es el destino.
@@ -334,7 +461,8 @@ VD.app = (function () {
     els.btnImport.addEventListener('click', importJson);
     els.btnWelcomeImport.addEventListener('click', importJson);
     els.btnReset.addEventListener('click', resetAll);
-    els.btnResetMigration.addEventListener('click', resetMigration);
+    els.btnResetMigration.addEventListener('click', function () { resetMigration('apps'); });
+    els.btnResetPc.addEventListener('click', function () { resetMigration('programs'); });
 
     // Si la app se queda abierta de un día para otro, los "en 3 días" y
     // los próximos cobros se recalculan al volver a ella.

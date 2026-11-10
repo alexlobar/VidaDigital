@@ -14,7 +14,7 @@ VD.ui = (function () {
   const $ = U.$;
   const el = U.createEl;
 
-  const VIEWS = ['home', 'subs', 'accounts', 'devices', 'webs', 'settings'];
+  const VIEWS = ['home', 'subs', 'accounts', 'apps', 'devices', 'webs', 'settings'];
   const THEME_COLOR = { dark: '#0d1117', light: '#f5f7fb' };
   const fmtMonth = new Intl.DateTimeFormat('es-ES', { month: 'short' });
 
@@ -30,6 +30,8 @@ VD.ui = (function () {
       'main', 'homeWelcome', 'btnWelcomeImport',
       'spendMonth', 'spendYear', 'spendCats',
       'homeUpcoming', 'homeUpcomingEmpty', 'securityLine', 'securityList', 'homeTiles',
+      'migrationCard', 'migrationLine', 'migrationTrack', 'migrationFill', 'migrationList',
+      'migrationActions', 'btnResetMigration',
       'itemModal', 'itemForm', 'itemTitle', 'itemFields', 'itemError',
       'btnItemClose', 'btnItemDelete', 'btnItemCancel',
       'setTheme', 'setBackup', 'backupStatus',
@@ -120,6 +122,8 @@ VD.ui = (function () {
     const state = S.getState();
     els.homeWelcome.hidden = U.KINDS.some(function (k) { return state[k.id].length > 0; });
 
+    renderMigration(state);
+
     // Gasto
     const t = C.totals(state);
     els.spendMonth.textContent = U.money(t.month);
@@ -181,6 +185,33 @@ VD.ui = (function () {
     });
   }
 
+  /** Tarjeta "Cambio de móvil": progreso y lo que falta por pasar. */
+  function renderMigration(state) {
+    const m = C.migration(state);
+    els.migrationCard.hidden = !m.total;
+    if (!m.total) return;
+
+    const pct = Math.round(m.done / m.total * 100);
+    els.migrationFill.style.setProperty('--w', pct + '%');
+    els.migrationTrack.setAttribute('aria-valuenow', String(pct));
+    els.migrationLine.textContent = m.left.length
+      ? m.done + ' de ' + m.total + ' apps migradas · faltan ' + m.left.length
+      : '✅ Las ' + m.total + ' apps están migradas.';
+    els.migrationActions.hidden = m.left.length > 0;
+
+    els.migrationList.textContent = '';
+    m.left.forEach(function (a) {
+      const installed = a.migration === 'instalada';
+      els.migrationList.appendChild(el('li', null, [
+        rowButton('apps', a, null,
+                  (installed ? 'Instalada · falta ' + (a.transfer || 'entrar o pasar datos') : 'Pendiente') +
+                  (a.login !== 'nose' && a.login !== 'sin' ? ' · ' + U.optionName(U.LOGIN_METHODS, a.login) : ''),
+                  installed ? 'warn' : '')
+      ]));
+    });
+    els.migrationList.hidden = !m.left.length;
+  }
+
   /* ── Listas ───────────────────────────────────────────────── */
 
   /** Lo que enseña la tarjeta de cada elemento, según su tipo. */
@@ -207,6 +238,18 @@ VD.ui = (function () {
       d.badge = it.twofa === 'no'
         ? { text: 'Sin 2FA', tone: it.important ? 'danger' : 'warn' }
         : { text: U.optionName(U.TWOFA, it.twofa), tone: 'ok' };
+
+    } else if (kindId === 'apps') {
+      if (it.account) d.meta.push(it.account);
+      if (it.login !== 'nose') d.meta.push(U.optionName(U.LOGIN_METHODS, it.login));
+      if (it.transfer && it.migration !== 'lista') d.meta.push('Pasar: ' + it.transfer);
+      d.dim = it.migration === 'no';
+      d.badge = {
+        pendiente: { text: 'Pendiente', tone: 'muted' },
+        instalada: { text: 'Instalada', tone: 'warn' },
+        lista: { text: 'Migrada', tone: 'ok' },
+        no: { text: 'No la paso', tone: 'muted' }
+      }[it.migration];
 
     } else if (kindId === 'devices') {
       if (it.model) d.meta.push(it.model);
@@ -255,10 +298,21 @@ VD.ui = (function () {
       ])
     ]);
 
+    // Al cambiar de móvil se marcan decenas de apps seguidas: un toque en ✓
+    // en vez de abrir el formulario de cada una.
+    const done = it.migration === 'lista';
+    const check = kind.id === 'apps' && it.migration !== 'no' ? el('button', {
+      type: 'button', class: 'item__check', 'data-migrate': it.id,
+      'aria-pressed': done ? 'true' : 'false',
+      'aria-label': (done ? 'Desmarcar ' : 'Marcar como migrada ') + it.name,
+      title: done ? 'Migrada · tocar para desmarcar' : 'Marcar como migrada', text: '✓'
+    }) : null;
+
     // El enlace va fuera del botón: un <a> dentro de un <button> no es válido.
     const href = U.safeUrl(it.url);
     return el('div', { class: 'item-row' }, [
       main,
+      check,
       href ? el('a', {
         class: 'item__link', href: href, target: '_blank', rel: 'noopener noreferrer',
         title: 'Abrir ' + U.shortUrl(it.url), 'aria-label': 'Abrir la web de ' + it.name, text: '↗'
@@ -286,6 +340,10 @@ VD.ui = (function () {
     if (kind.id === 'accounts') {
       const no = all.filter(function (a) { return a.twofa === 'no'; }).length;
       return head + (no ? ' · ' + no + ' sin 2FA' : ' · todas con 2FA');
+    }
+    if (kind.id === 'apps') {
+      const m = C.migration(S.getState());
+      return head + ' · ' + m.done + ' de ' + m.total + ' migradas';
     }
     if (kind.id === 'devices') {
       const used = all.filter(function (d) { return d.status === 'uso'; }).length;

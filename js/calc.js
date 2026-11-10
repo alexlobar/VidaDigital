@@ -134,8 +134,26 @@ VD.calc = (function () {
     };
   }
 
+  /**
+   * Cómo va el cambio de móvil. Las que no se pasan no cuentan en el
+   * total: si no, el 100 % sería imposible.
+   */
+  function migration(state) {
+    const counted = state.apps.filter(function (a) { return a.migration !== 'no'; });
+    const left = counted.filter(function (a) { return a.migration !== 'lista'; });
+    return {
+      total: counted.length,
+      done: counted.length - left.length,
+      // Las instaladas primero: están a un paso de terminar.
+      left: left.sort(function (a, b) {
+        if (a.migration !== b.migration) return a.migration === 'instalada' ? -1 : 1;
+        return a.name.localeCompare(b.name, 'es', { sensitivity: 'base' });
+      })
+    };
+  }
+
   return {
     monthly: monthly, nextCharge: nextCharge, nextExpiry: nextExpiry,
-    totals: totals, upcoming: upcoming, security: security
+    totals: totals, upcoming: upcoming, security: security, migration: migration
   };
 })();

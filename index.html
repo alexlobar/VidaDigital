@@ -2,7 +2,7 @@
 <!-- data-build tiene que coincidir con VERSION en js/utils.js y con CACHE en
      sw.js. Si el navegador sirve un index.html de una versión y unos .js de
      otra, la app lo detecta y avisa en vez de quedarse sin responder. -->
-<html lang="es" data-theme="dark" data-build="1.0.0">
+<html lang="es" data-theme="dark" data-build="1.1.0">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -51,6 +51,9 @@
       <button type="button" class="nav__item" data-view="accounts">
         <span class="nav__icon" aria-hidden="true">🔑</span><span class="nav__label">Cuentas</span>
       </button>
+      <button type="button" class="nav__item" data-view="apps">
+        <span class="nav__icon" aria-hidden="true">📲</span><span class="nav__label">Apps</span>
+      </button>
       <button type="button" class="nav__item" data-view="devices">
         <span class="nav__icon" aria-hidden="true">💻</span><span class="nav__label" data-long="Dispositivos">Equipos</span>
       </button>
@@ -78,6 +81,21 @@
         </div>
 
         <div class="home-grid">
+          <!-- Solo aparece si hay apps apuntadas: es el progreso del cambio
+               de móvil, y mientras dura es lo primero que se quiere ver. -->
+          <article class="card migration" id="migrationCard" hidden>
+            <h2 class="card__title">Cambio de móvil</h2>
+            <p class="migration__line" id="migrationLine">—</p>
+            <span class="bar__track migration__track" id="migrationTrack" role="progressbar"
+                  aria-label="Apps migradas" aria-valuemin="0" aria-valuemax="100">
+              <span class="bar__fill" id="migrationFill"></span>
+            </span>
+            <ul class="events" id="migrationList"></ul>
+            <div class="btn-row" id="migrationActions" hidden>
+              <button type="button" class="btn" id="btnResetMigration">Empezar otro cambio de móvil</button>
+            </div>
+          </article>
+
           <article class="card spend">
             <h2 class="card__title">Gasto</h2>
             <p class="spend__big"><span id="spendMonth">0 €</span><span class="spend__unit"> al mes</span></p>
@@ -136,6 +154,25 @@
           <p class="empty__icon" aria-hidden="true">🔑</p>
           <p class="empty__title">Aún no hay cuentas</p>
           <p class="empty__text">Apunta dónde tienes cuenta, con qué email y cómo se recupera. Sin contraseñas: para eso, un gestor de contraseñas.</p>
+        </div>
+      </section>
+
+      <!-- ══ APPS ══ -->
+      <section class="view" id="view-apps" hidden aria-labelledby="appsTitle">
+        <div class="view__head">
+          <div>
+            <h1 class="view__title" id="appsTitle">Apps</h1>
+            <p class="view__sub" id="appsCount">—</p>
+          </div>
+          <button type="button" class="btn btn--primary" id="appsAdd" data-add="apps">+ Añadir</button>
+        </div>
+        <input type="search" class="search" id="appsSearch" data-search="apps"
+               placeholder="Buscar… (prueba «pendiente»)" aria-label="Buscar apps" autocomplete="off">
+        <div class="list" id="appsList"></div>
+        <div class="empty" id="appsEmpty" hidden>
+          <p class="empty__icon" aria-hidden="true">📲</p>
+          <p class="empty__title">Aún no hay apps</p>
+          <p class="empty__text">Apunta las apps de tu móvil —WhatsApp, Instagram, Steam, Playtomic…— y al cambiar de móvil marca cada una con ✓ cuando esté migrada.</p>
         </div>
       </section>
 

@@ -1,8 +1,13 @@
 # Vida digital
 
-Tus suscripciones, cuentas, dispositivos y webs en un solo sitio, con el gasto total, lo que vence en los próximos 30 días y qué cuentas no tienen verificación en dos pasos. HTML, CSS y JavaScript vanilla: sin dependencias, sin build, offline, con los datos en `localStorage`.
+Tus suscripciones, cuentas, apps, dispositivos y webs en un solo sitio, con el gasto total, lo que vence en los próximos 30 días, qué cuentas no tienen verificación en dos pasos y cómo va el cambio de móvil. HTML, CSS y JavaScript vanilla: sin dependencias, sin build, offline, con los datos en `localStorage`.
 
-**Versión documentada: 1.0.0** (28-10-2026) · esquema de datos **1**.
+**Versión documentada: 1.1.0** (09-11-2026) · esquema de datos **1**.
+
+| Versión | Cambios |
+|---|---|
+| 1.1.0 | Sección **Apps** con el estado de cada una en el cambio de móvil, botón ✓ y tarjeta de progreso en el Resumen |
+| 1.0.0 | Suscripciones, cuentas, dispositivos y webs |
 
 Sigue la estructura de `../Base-app-web.md`.
 
@@ -20,7 +25,7 @@ icon-maskable-512.png  Android, a sangre
 css/styles.css         Estilos en 13 secciones; tokens en :root
 js/utils.js            Fechas, dinero, DOM, catálogos, KINDS y LA VERSIÓN
 js/store.js            localStorage: carga, saneado, migraciones y escritura
-js/calc.js             Gasto, próximos cobros, caducidades y seguridad
+js/calc.js             Gasto, próximos cobros, caducidades, seguridad y cambio de móvil
 js/ui.js               Todo lo que toca el DOM
 js/app.js              Eventos, exportación/importación y arranque
 ```
@@ -29,11 +34,13 @@ Orden de carga = orden de dependencia: `utils → store → calc → ui → app`
 
 ## Pantallas
 
-**Resumen.** Gasto al mes y al año de las suscripciones activas (más el coste anual de los dominios, prorrateado), desglosado por categoría. Debajo, lo que pasa en los próximos 30 días: cobros, renovaciones, dominios que caducan y garantías que se acaban. Después, cuántas cuentas no tienen 2FA, empezando por las marcadas como importantes. Al final, un acceso a cada sección con su número de elementos.
+**Resumen.** Si hay apps apuntadas, arriba sale **Cambio de móvil**: cuántas están migradas, una barra de progreso y la lista de las que faltan (primero las instaladas a medias). Cuando están todas, aparece *Empezar otro cambio de móvil*, que las devuelve a «Pendiente». Después, el gasto al mes y al año de las suscripciones activas (más el coste anual de los dominios, prorrateado), desglosado por categoría. Debajo, lo que pasa en los próximos 30 días: cobros, renovaciones, dominios que caducan y garantías que se acaban. Después, cuántas cuentas no tienen 2FA, empezando por las marcadas como importantes. Al final, un acceso a cada sección con su número de elementos.
 
 **Suscripciones.** Servicio, categoría, precio, periodicidad, próximo cobro, cuenta asociada, método de pago, si está activa, web y notas. Las inactivas no suman al gasto y van al final de su grupo.
 
 **Cuentas.** Servicio, categoría, usuario o email, tipo de 2FA, cómo recuperarla, si es importante, web y notas. Sin contraseñas (ver Decisiones).
+
+**Apps.** Las aplicaciones del móvil: nombre, categoría, estado en el cambio de móvil (pendiente, instalada, migrada, no la paso), cómo se entra (teléfono, email, Google, Apple…), cuenta o usuario, qué hay que pasar a mano (chats, autenticador, partidas…) y notas. El círculo ✓ de cada fila la marca como migrada sin abrir el formulario.
 
 **Dispositivos (Equipos).** Nombre, tipo, marca y modelo, número de serie, fecha de compra, fin de garantía, precio, estado y notas.
 
@@ -57,9 +64,9 @@ Cada lista se agrupa por categoría en el orden del catálogo, y a partir de 6 e
 
 | Dónde | Qué |
 |---|---|
-| `js/utils.js` | `VERSION = '1.0.0'` y `BUILD_DATE` — la fuente de verdad |
-| `sw.js` | `CACHE = 'vida-digital-v1.0.0'` |
-| `index.html` | `<html data-build="1.0.0">` |
+| `js/utils.js` | `VERSION = '1.1.0'` y `BUILD_DATE` — la fuente de verdad |
+| `sw.js` | `CACHE = 'vida-digital-v1.1.0'` |
+| `index.html` | `<html data-build="1.1.0">` |
 
 Si no coinciden, la app avisa al arrancar de que el navegador ha mezclado versiones.
 
@@ -92,6 +99,8 @@ Clave `vidaDigital.v1` (copia de rescate en `vidaDigital.corrupt-backup`).
     "active": true, "url": "netflix.com", "notes": ""
   }],
   "accounts": [{ "…": "…", "user": "", "twofa": "no", "recovery": "", "important": false, "url": "", "notes": "" }],
+  "apps":     [{ "…": "…", "migration": "pendiente",   // pendiente | instalada | lista | no
+                 "login": "nose", "account": "", "transfer": "", "notes": "" }],
   "devices":  [{ "…": "…", "model": "", "serial": "", "purchaseDate": null, "warrantyUntil": null,
                  "price": null, "status": "uso", "notes": "" }],
   "webs":     [{ "…": "…", "url": "", "provider": "", "expires": null, "price": null, "autoRenew": false, "notes": "" }]
@@ -106,7 +115,7 @@ Todo lo que se carga o se importa pasa por `cleanState()` en `store.js`, que rec
 
 | Esquema | Función | Qué hace |
 |---|---|---|
-| 1 | — | Esquema inicial |
+| 1 | — | Esquema inicial. La lista `apps` (1.1.0) no necesitó migración: el saneado la crea vacía en los datos antiguos. |
 
 ## Cómo extender
 
@@ -122,7 +131,10 @@ Todo lo que se carga o se importa pasa por `cleanState()` en `store.js`, que rec
 - **El próximo cobro no se reescribe.** Se guarda la fecha que pusiste y `calc.nextCharge()` le suma periodos enteros hasta hoy, siempre desde la fecha original: un cobro el día 31 pasa por el 28 de febrero y vuelve al 31 en marzo.
 - **Un dominio caducado que no se renueva solo se sigue enseñando** (hasta 60 días) en el resumen: es justo lo que hay que ver.
 - **Precio vacío ≠ 0 €.** Vacío es "no lo sé"; 0 es gratis.
-- **Un solo formulario para los cuatro tipos**, generado desde `utils.KINDS`, que también usa el saneado: no pueden discrepar.
+- **Las apps van aparte de las cuentas.** Una cuenta es dónde estás registrado; una app es lo que hay que reinstalar y volver a configurar en el móvil nuevo. Instagram puede estar en las dos, y no pasa nada.
+- **«Instalada» no es «migrada».** Lo que se olvida al cambiar de móvil no es instalar, sino entrar y pasar los datos: por eso hay un paso intermedio y el campo *Qué hay que pasar*.
+- **Las de «No la paso» no cuentan en el progreso**: si no, el 100 % sería imposible.
+- **Un solo formulario para todos los tipos**, generado desde `utils.KINDS`, que también usa el saneado: no pueden discrepar.
 - **Las URLs se abren solo si son http o https.** `netflix.com` se convierte en `https://netflix.com`; un `javascript:` de una copia manipulada nunca acaba en un enlace.
 - **La vista va en el hash** (`#subs`): recargar o el botón atrás del móvil te dejan donde estabas.
 - **Prefijo de caché `vida-digital-v`**, único en `alexlobar.github.io`; el service worker solo borra las cachés que empiezan por él.

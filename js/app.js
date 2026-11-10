@@ -119,6 +119,28 @@ VD.app = (function () {
     });
   }
 
+  /* ── Cambio de móvil ──────────────────────────────────────── */
+
+  /** El ✓ de la lista: migrada ↔ pendiente. */
+  function toggleMigrated(id) {
+    const app = S.getItem('apps', id);
+    if (!app || app.migration === 'no') return;
+    const done = app.migration !== 'lista';
+    S.saveItem('apps', { id: id, migration: done ? 'lista' : 'pendiente' });
+
+    const m = VD.calc.migration(S.getState());
+    if (done && m.total && m.done === m.total) {
+      UI.toast('¡Todas las apps migradas!', { type: 'success', icon: '🎉' });
+    }
+  }
+
+  function resetMigration() {
+    if (!window.confirm('Todas las apps volverán a «Pendiente» para el siguiente cambio de móvil ' +
+                        '(las de «No la paso» se quedan como están). ¿Continuar?')) return;
+    S.resetMigration();
+    UI.toast('Listo para el siguiente cambio de móvil.', { type: 'success', icon: '📲' });
+  }
+
   /* ── Exportación e importación ────────────────────────────── */
 
   function download(filename, content, mime) {
@@ -266,9 +288,10 @@ VD.app = (function () {
     // Un solo manejador para todo lo que navega, añade o abre: los botones
     // de las listas y del resumen se crean y se destruyen en cada repintado.
     document.addEventListener('click', function (e) {
-      const t = e.target.closest('[data-view], [data-add], .item[data-id], .event[data-id]');
+      const t = e.target.closest('[data-view], [data-add], [data-migrate], .item[data-id], .event[data-id]');
       if (!t) return;
-      if (t.dataset.view) go(t.dataset.view, true);
+      if (t.dataset.migrate) toggleMigrated(t.dataset.migrate);
+      else if (t.dataset.view) go(t.dataset.view, true);
       else if (t.dataset.add) UI.openForm(t.dataset.add, null);
       else openItem(t.dataset.kind, t.dataset.id);
     });
@@ -300,6 +323,7 @@ VD.app = (function () {
     els.btnImport.addEventListener('click', importJson);
     els.btnWelcomeImport.addEventListener('click', importJson);
     els.btnReset.addEventListener('click', resetAll);
+    els.btnResetMigration.addEventListener('click', resetMigration);
 
     // Si la app se queda abierta de un día para otro, los "en 3 días" y
     // los próximos cobros se recalculan al volver a ella.

@@ -294,6 +294,20 @@ VD.store = (function () {
     commit('items', { kind: removed.kind });
   }
 
+  /**
+   * Para el siguiente cambio de móvil: todo lo que se pasó vuelve a
+   * "Pendiente". Las marcadas como "No la paso" se quedan como están.
+   */
+  function resetMigration() {
+    const today = U.todayKey();
+    state.apps.forEach(function (a) {
+      if (a.migration === 'no' || a.migration === 'pendiente') return;
+      a.migration = 'pendiente';
+      a.updatedAt = today;
+    });
+    commit('items', { kind: 'apps' });
+  }
+
   function setSetting(key, value) {
     const patch = {};
     patch[key] = value;
@@ -331,6 +345,7 @@ VD.store = (function () {
     getState: getState, getSettings: getSettings, getLastError: getLastError,
     getItems: getItems, getItem: getItem,
     saveItem: saveItem, removeItem: removeItem, restoreItem: restoreItem,
+    resetMigration: resetMigration,
     setSetting: setSetting, markExported: markExported,
     replaceState: replaceState, reset: reset,
     storageUse: storageUse,

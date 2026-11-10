@@ -15,8 +15,8 @@ VD.utils = (function () {
      Aparece en otros dos sitios: CACHE en sw.js (un service worker no
      puede leer este archivo) y data-build en index.html. Si se
      desincronizan, la app lo avisa al arrancar. ──────────────── */
-  const VERSION = '1.0.0';
-  const BUILD_DATE = '2026-10-28';
+  const VERSION = '1.1.0';
+  const BUILD_DATE = '2026-11-09';
   /* Igual que PREFIX en sw.js. Único en alexlobar.github.io: no puede ser
      el comienzo del prefijo de otra app (ver Service-worker-cache.md). */
   const CACHE_PREFIX = 'vida-digital-v';
@@ -49,6 +49,43 @@ VD.utils = (function () {
     { id: 'ocio',           name: 'Ocio',               icon: '🎬' },
     { id: 'desarrollo',     name: 'Desarrollo',         icon: '🛠️' },
     { id: 'otros',          name: 'Otras',              icon: '🔑' }
+  ];
+
+  const APP_CATEGORIES = [
+    { id: 'mensajeria',    name: 'Mensajería',            icon: '💬' },
+    { id: 'redes',         name: 'Redes sociales',        icon: '📸' },
+    { id: 'juegos',        name: 'Juegos',                icon: '🎮' },
+    { id: 'deporte',       name: 'Deporte y salud',       icon: '🏃' },
+    { id: 'banca',         name: 'Banca y pagos',         icon: '🏦' },
+    { id: 'compras',       name: 'Compras y comida',      icon: '🛒' },
+    { id: 'transporte',    name: 'Transporte y viajes',   icon: '🚗' },
+    { id: 'ocio',          name: 'Música, vídeo y ocio',  icon: '🎬' },
+    { id: 'productividad', name: 'Trabajo y organización', icon: '🗂️' },
+    { id: 'utilidades',    name: 'Utilidades',            icon: '🔧' },
+    { id: 'otros',         name: 'Otras',                 icon: '📦' }
+  ];
+
+  /* Cómo se entra en una app. Al cambiar de móvil es lo primero que hay
+     que saber: con el número de teléfono basta el SMS, con email hace
+     falta la contraseña a mano. */
+  const LOGIN_METHODS = [
+    { id: 'nose',     name: 'No lo sé' },
+    { id: 'telefono', name: 'Número de teléfono' },
+    { id: 'email',    name: 'Email y contraseña' },
+    { id: 'google',   name: 'Con Google' },
+    { id: 'apple',    name: 'Con Apple' },
+    { id: 'facebook', name: 'Con Facebook' },
+    { id: 'sin',      name: 'No necesita cuenta' }
+  ];
+
+  /* Estado de una app en el cambio de móvil, en el orden en que se avanza.
+     "Instalada" no es "migrada": falta entrar o pasar los datos (chats,
+     partidas, el autenticador…), que es justo lo que se olvida. */
+  const MIGRATION = [
+    { id: 'pendiente', name: 'Pendiente' },
+    { id: 'instalada', name: 'Instalada, falta entrar o pasar datos' },
+    { id: 'lista',     name: 'Migrada' },
+    { id: 'no',        name: 'No la paso' }
   ];
 
   const DEVICE_TYPES = [
@@ -143,6 +180,23 @@ VD.utils = (function () {
         { key: 'url', label: 'Web', type: 'url' },
         { key: 'notes', label: 'Notas', type: 'textarea',
           hint: 'No apuntes contraseñas: aquí no van cifradas. Para eso, un gestor de contraseñas.' }
+      ]
+    },
+    {
+      id: 'apps', name: 'Apps', nav: 'Apps', one: 'app',
+      add: 'Nueva app', edit: 'Editar app', icon: '📲',
+      cats: APP_CATEGORIES,
+      fields: [
+        { key: 'name', label: 'App', type: 'text', required: true, placeholder: 'WhatsApp, Instagram, Steam, Playtomic…' },
+        { key: 'category', label: 'Categoría', type: 'select', options: APP_CATEGORIES, default: 'otros' },
+        { key: 'migration', label: 'Cambio de móvil', type: 'select', options: MIGRATION },
+        { key: 'login', label: 'Cómo se entra', type: 'select', options: LOGIN_METHODS, half: true },
+        { key: 'account', label: 'Cuenta o usuario', type: 'text', half: true },
+        { key: 'transfer', label: 'Qué hay que pasar', type: 'text',
+          placeholder: 'Copia de chats, autenticador, partidas…',
+          hint: 'Lo que no se recupera solo al iniciar sesión.' },
+        { key: 'notes', label: 'Notas', type: 'textarea',
+          placeholder: 'Pasos para migrarla, dónde está la copia…' }
       ]
     },
     {
@@ -349,7 +403,8 @@ VD.utils = (function () {
     version: VERSION, buildDate: buildDate, CACHE_PREFIX: CACHE_PREFIX,
     KINDS: KINDS, kindById: kindById,
     PERIODS: PERIODS, periodById: periodById,
-    TWOFA: TWOFA, DEVICE_STATUS: DEVICE_STATUS, optionName: optionName, byId: byId,
+    TWOFA: TWOFA, DEVICE_STATUS: DEVICE_STATUS, LOGIN_METHODS: LOGIN_METHODS, MIGRATION: MIGRATION,
+    optionName: optionName, byId: byId,
     toKey: toKey, fromKey: fromKey, isValidKey: isValidKey, todayKey: todayKey,
     addDaysKey: addDaysKey, addMonthsKey: addMonthsKey, daysBetween: daysBetween,
     formatDate: formatDate,

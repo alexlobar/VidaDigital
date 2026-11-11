@@ -133,7 +133,8 @@ a { color: var(--accent-text); }
 .main {
   max-width: var(--content-max);
   margin: 0 auto;
-  padding: var(--sp-4) var(--sp-4) calc(var(--sp-6) + env(safe-area-inset-bottom));
+  /* Abajo, hueco para el + flotante: que no tape el último elemento. */
+  padding: var(--sp-4) var(--sp-4) calc(var(--sp-6) + 72px + env(safe-area-inset-bottom));
   outline: none;
 }
 
@@ -529,6 +530,7 @@ a { color: var(--accent-text); }
   border-top: 1px solid var(--border);
 }
 .spacer { flex: 1; }
+.modal__extra { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
 
 /* Importar desde Excel */
 /* minmax(0, …): sin él, el texto pegado (sin saltos de línea) ensancharía
@@ -574,10 +576,116 @@ a { color: var(--accent-text); }
   color: var(--text-faint); font-size: var(--fs-sm); text-align: center;
 }
 
+/* Ajustes → Apariencia y Resumen */
+.row--stack { flex-direction: column; align-items: flex-start; gap: var(--sp-2); }
+.swatches { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.swatch {
+  width: 34px; height: 34px; border-radius: 50%;
+  background: var(--swatch); border: 3px solid var(--surface);
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+.swatch[aria-checked="true"] { box-shadow: 0 0 0 2px var(--text); }
+.settings__sub { font-size: var(--fs-sm); font-weight: 700; color: var(--text-muted); margin-top: var(--sp-2); }
+.layout { display: grid; gap: 2px; }
+.layout__row {
+  display: flex; align-items: center; gap: var(--sp-1);
+  padding: 2px var(--sp-1) 2px var(--sp-2); border-radius: var(--radius-sm); background: var(--surface-2);
+}
+.layout__row--off .layout__name span { color: var(--text-faint); text-decoration: line-through; }
+.layout__name { flex: 1; display: flex; align-items: center; gap: var(--sp-2); cursor: pointer; min-width: 0; }
+.layout__name input { width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
+.layout__move { width: 34px; height: 34px; font-size: 1rem; }
+.layout__move:disabled { opacity: .3; cursor: default; }
+
+/* Campo Logo: vista previa + texto + Elegir; debajo, la cuadrícula. */
+.logo-field { display: flex; align-items: center; gap: var(--sp-2); }
+.logo-field input { flex: 1; min-width: 0; }
+.logo-field__preview { flex: none; }
+.logo-picker {
+  margin-top: var(--sp-2); padding: var(--sp-3);
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.logo-picker__search { margin-bottom: var(--sp-3); }
+.logo-picker__grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: var(--sp-1);
+  max-height: 280px; overflow-y: auto;
+}
+.logo-choice {
+  display: grid; justify-items: center; gap: 4px;
+  background: none; border: 1px solid transparent; border-radius: var(--radius-sm);
+  padding: var(--sp-2) 2px;
+}
+.logo-choice:hover { background: var(--surface-2); border-color: var(--border); }
+.logo-choice__name {
+  font-size: .68rem; color: var(--text-muted); text-align: center; line-height: 1.2;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.logo--auto { --logo-bg: var(--surface-3); --logo-fg: var(--text-muted); font-size: .7rem; font-weight: 700; }
+
+/* Diálogo de contraseña: estrecho. */
+.modal--small { width: min(420px, calc(100vw - 2 * var(--sp-4))); }
+
+/* ── 11b. CANDADO ──────────────────────────────────────────── */
+.lock {
+  position: fixed; inset: 0; z-index: 60;
+  display: grid; place-items: center; padding: var(--sp-4);
+  background: var(--bg);
+}
+.lock__box {
+  width: min(360px, 100%);
+  display: grid; justify-items: center; gap: var(--sp-3); text-align: center;
+}
+.lock__icon { border-radius: 16px; }
+.lock__title { font-size: var(--fs-xl); }
+.lock__text { color: var(--text-muted); font-size: var(--fs-sm); }
+.lock__input {
+  width: 100%; min-height: 48px; padding: 0 var(--sp-4); font-size: var(--fs-lg);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.lock__input:focus { border-color: var(--accent); outline: none; }
+.lock__btn { width: 100%; min-height: 48px; font-size: var(--fs-md); }
+.lock__forgot { font-size: var(--fs-sm); font-weight: 600; color: var(--text-muted); }
+.lock .form-error { margin: 0; width: 100%; }
+.lock__box--shake { animation: shake 360ms var(--ease); }
+@keyframes shake {
+  20%, 60% { transform: translateX(-8px); }
+  40%, 80% { transform: translateX(8px); }
+}
+
+/* ── 11c. BOTÓN + FLOTANTE ─────────────────────────────────── */
+.fab {
+  position: fixed; z-index: 30;
+  right: calc(var(--sp-4) + env(safe-area-inset-right));
+  bottom: calc(var(--sp-4) + env(safe-area-inset-bottom));
+  width: 58px; height: 58px; border-radius: 50%; border: 0;
+  background: var(--accent); color: var(--on-accent);
+  font-size: 2rem; font-weight: 300; line-height: 1;
+  box-shadow: var(--shadow-2);
+  transition: transform var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.fab:hover { background: var(--accent-hover); }
+.fab--open { transform: rotate(45deg); }
+.fab-menu {
+  position: fixed; z-index: 30;
+  right: calc(var(--sp-4) + env(safe-area-inset-right));
+  bottom: calc(var(--sp-4) + 70px + env(safe-area-inset-bottom));
+  display: grid; gap: 2px; padding: var(--sp-2);
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius);
+  box-shadow: var(--shadow-3);
+  animation: pop-in var(--dur) var(--ease);
+}
+.fab-menu__item {
+  display: flex; align-items: center; gap: var(--sp-3);
+  background: none; border: 0; border-radius: var(--radius-sm);
+  padding: var(--sp-2) var(--sp-3); text-align: left; font-weight: 600; white-space: nowrap;
+}
+.fab-menu__item:hover { background: var(--surface-2); }
+
 /* ── 12. TOASTS ────────────────────────────────────────────── */
 .toast-stack {
   position: fixed; left: 50%; transform: translateX(-50%); z-index: 50;
-  bottom: calc(var(--sp-4) + env(safe-area-inset-bottom));
+  /* Por encima del + flotante. */
+  bottom: calc(var(--sp-4) + 72px + env(safe-area-inset-bottom));
   display: grid; gap: var(--sp-2);
   width: min(460px, calc(100vw - 2 * var(--sp-4)));
   pointer-events: none;
@@ -615,7 +723,21 @@ a { color: var(--accent-text); }
 /* Móvil estrecho: los campos a media anchura pasan a ocupar la fila. */
 @media (max-width: 420px) {
   .field--half { grid-column: 1 / -1; }
-  .view__head { align-items: flex-start; }
+}
+
+/* Pie del formulario en pantalla estrecha: Borrar/Archivar/Duplicar
+   arriba, y Cancelar y Guardar abajo, repartiéndose el ancho. */
+@media (max-width: 560px) {
+  .modal__foot { flex-wrap: wrap; }
+  .modal__extra { width: 100%; }
+  .modal__extra:not(:has(.btn:not([hidden]))) { display: none; }
+  .modal__foot > .spacer { display: none; }
+  .modal__foot > .btn { flex: 1; }
+}
+
+/* En el móvil añade el + flotante: el "+ Añadir" de la cabecera sobra. */
+@media (max-width: 899px) {
+  .view__head .btn--primary[data-add] { display: none; }
 }
 
 /* Pantallas anchas: el menú y el resumen se reparten en columnas. */
@@ -623,7 +745,7 @@ a { color: var(--accent-text); }
   .tiles { grid-template-columns: repeat(3, 1fr); }
 }
 @media (min-width: 900px) {
-  .main { padding: var(--sp-5) var(--sp-6) var(--sp-6); }
+  .main { padding: var(--sp-5) var(--sp-6) calc(var(--sp-6) + 72px); }
   .home-grid { grid-template-columns: 1fr 1fr; align-items: start; }
   .migration { grid-column: 1 / -1; }
 }

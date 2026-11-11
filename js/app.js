@@ -33,14 +33,15 @@ VD.app = (function () {
     Object.keys(dirty).forEach(function (k) { delete dirty[k]; });
 
     if (d.all || d.settings) {
-      UI.applyTheme(S.getSettings().theme);
+      UI.applyTheme(S.getSettings().theme, S.getSettings().accent);
       UI.renderSettings(today);
     }
     U.KINDS.forEach(function (k) {
       if (d.all || d[k.id]) UI.renderList(k.id, today);
     });
-    // El resumen lo cruza todo: cualquier cambio en los datos le afecta.
-    if (d.all || d.home) UI.renderHome(today);
+    // El resumen lo cruza todo: cualquier cambio en los datos le afecta,
+    // y los ajustes deciden qué tarjetas y secciones enseña.
+    if (d.all || d.home || d.settings) UI.renderHome(today);
   }
 
   function renderAll() {
@@ -216,12 +217,56 @@ VD.app = (function () {
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
   }
 
+  /** Con contraseña, la copia sale cifrada igual que lo guardado. */
   function exportJson() {
-    download('vida-digital-' + today + '.json',
-             JSON.stringify(S.getState(), null, 2),
-             'application/json');
-    S.markExported();
-    UI.toast('Copia exportada.', { type: 'success', icon: '↓' });
+    S.exportText().then(function (text) {
+      download('vida-digital-' + today + '.json', text, 'application/json');
+      S.markExported();
+      UI.toast(S.isEncrypted() ? 'Copia cifrada descargada.' : 'Copia descargada.', { type: 'success', icon: '↓' });
+    });
+  }
+
+  /* ── Guardar en Drive (compartir) ─────────────────────────
+     El menú Compartir del sistema: en el móvil deja elegir Drive,
+     OneDrive, un correo o un chat contigo mismo, y la copia no se queda
+     olvidada en Descargas. Chrome no deja compartir cualquier tipo de
+     archivo: si un .json no vale, se prueba como texto (.json.txt, que
+     Importar copia también acepta). Si el navegador no comparte archivos,
+     se descarga. ─────────────────────────────────────────── */
+
+  function shareableFile(text) {
+    const name = 'vida-digital-' + today + '.json';
+    const candidates = [
+      new File([text], name, { type: 'application/json' }),
+      new File([text], name + '.txt', { type: 'text/plain' })
+    ];
+    if (!navigator.canShare) return null;
+    for (let i = 0; i < candidates.length; i++) {
+      try { if (navigator.canShare({ files: [candidates[i]] })) return candidates[i]; } catch (e) { /* tipo no admitido */ }
+    }
+    return null;
+  }
+
+  function shareBackup() {
+    S.exportText().then(function (text) {
+      const file = shareableFile(text);
+      if (!file) {
+        download('vida-digital-' + today + '.json', text, 'application/json');
+        S.markExported();
+        UI.toast('Este navegador no deja compartir archivos: la copia se ha descargado.', { icon: '↓', duration: 6000 });
+        return;
+      }
+      navigator.share({ files: [file], title: 'Copia de Vida digital' })
+        .then(function () {
+          S.markExported();
+          UI.toast('Copia enviada.', { type: 'success', icon: '☁️' });
+        })
+        .catch(function (err) {
+          if (err && err.name === 'AbortError') return;      // lo cerraste sin elegir
+          UI.toast('No se pudo compartir: ' + (err && err.message || 'error') + '. Prueba Descargar copia.',
+                   { type: 'error', icon: '⚠️' });
+        });
+    });
   }
 
   function csvCell(value) {
@@ -320,10 +365,32 @@ VD.app = (function () {
              { type: 'success', icon: '📥', duration: 6000 });
   }
 
+  /** Reemplaza todo por una copia ya abierta (descifrada si lo estaba). */
+  function applyBackup(parsed) {
+    const looksRight = parsed && typeof parsed === 'object' &&
+      U.KINDS.some(function (k) { return Array.isArray(parsed[k.id]); });
+    if (!looksRight) {
+      UI.toast('El archivo no parece una copia de Vida digital.', { type: 'error', icon: '⚠️' });
+      return;
+    }
+
+    const count = U.KINDS.reduce(function (n, k) {
+      return n + (Array.isArray(parsed[k.id]) ? parsed[k.id].length : 0);
+    }, 0);
+    if (!window.confirm('La copia tiene ' + count + ' elementos y reemplazará todo lo que hay ahora. ¿Continuar?')) return;
+
+    S.replaceState(parsed);
+    UI.closeForm();
+    UI.toast('Copia importada.', { type: 'success', icon: '↑' });
+  }
+
+  // Una copia cifrada espera aquí a que se escriba su contraseña.
+  let pendingBackup = null;
+
   function importJson() {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = 'application/json,.json';
+    input.accept = 'application/json,.json,.txt';
 
     input.addEventListener('change', function () {
       const file = input.files && input.files[0];
@@ -340,21 +407,16 @@ VD.app = (function () {
           return;
         }
 
-        const looksRight = parsed && typeof parsed === 'object' &&
-          U.KINDS.some(function (k) { return Array.isArray(parsed[k.id]); });
-        if (!looksRight) {
-          UI.toast('El archivo no parece una copia de Vida digital.', { type: 'error', icon: '⚠️' });
+        if (S.isEnvelope(parsed)) {
+          if (!S.cryptoAvailable()) {
+            UI.toast('Esta copia está cifrada y este navegador no puede descifrarla.', { type: 'error', icon: '⚠️' });
+            return;
+          }
+          pendingBackup = parsed;
+          UI.openPassword('backup');
           return;
         }
-
-        const count = U.KINDS.reduce(function (n, k) {
-          return n + (Array.isArray(parsed[k.id]) ? parsed[k.id].length : 0);
-        }, 0);
-        if (!window.confirm('La copia tiene ' + count + ' elementos y reemplazará todo lo que hay ahora. ¿Continuar?')) return;
-
-        S.replaceState(parsed);
-        UI.closeForm();
-        UI.toast('Copia importada.', { type: 'success', icon: '↑' });
+        applyBackup(parsed);
       };
       reader.onerror = function () {
         UI.toast('No se pudo leer el archivo.', { type: 'error', icon: '⚠️' });
@@ -386,14 +448,109 @@ VD.app = (function () {
       ? 'Llevas ' + U.daysBetween(last, today) + ' días sin exportar una copia.'
       : 'Aún no has exportado ninguna copia de tus datos.', {
       icon: '💾',
-      action: { label: 'Exportar', onClick: exportJson }
+      // En el móvil, directo a Compartir (Drive…); si no se puede, descarga.
+      action: { label: 'Guardar copia', onClick: shareBackup }
     });
   }
 
   function resetAll() {
-    if (!window.confirm('Se borrará todo lo apuntado en este navegador. No se puede deshacer.\n\n¿Seguro?')) return;
+    if (!window.confirm('Se borrará todo lo apuntado en este navegador' +
+                        (S.isEncrypted() ? ', y también la contraseña' : '') +
+                        '. No se puede deshacer.\n\n¿Seguro?')) return;
     S.reset();
     UI.toast('Todo borrado.');
+  }
+
+  /* ── Contraseña ───────────────────────────────────────────── */
+
+  const MIN_PASSWORD = 8;
+
+  function onPasswordSubmit(e) {
+    e.preventDefault();
+    const f = UI.passwordForm();
+
+    if (f.mode === 'set' || f.mode === 'change') {
+      if (f.fresh.length < MIN_PASSWORD) { UI.passwordError('La contraseña nueva necesita al menos ' + MIN_PASSWORD + ' caracteres.'); return; }
+      if (f.fresh !== f.repeat) { UI.passwordError('Las dos contraseñas nuevas no coinciden.'); return; }
+    }
+    if ((f.mode === 'change' || f.mode === 'remove' || f.mode === 'backup') && !f.current) {
+      UI.passwordError('Escribe la contraseña.');
+      return;
+    }
+
+    UI.passwordError('');
+    UI.passwordBusy(true);
+
+    if (f.mode === 'backup') {
+      const backup = pendingBackup;
+      S.openBackup(backup, f.current).then(function (res) {
+        UI.passwordBusy(false);
+        if (!res) { UI.passwordError('Contraseña incorrecta.'); return; }
+        pendingBackup = null;
+        UI.closePassword();
+        applyBackup(res.obj);
+      });
+      return;
+    }
+
+    const check = f.mode === 'set' ? Promise.resolve(true) : S.checkPassword(f.current);
+    check.then(function (ok) {
+      if (!ok) { UI.passwordBusy(false); UI.passwordError('La contraseña actual no es esa.'); return null; }
+      return (f.mode === 'remove' ? S.removePassword() : S.setPassword(f.fresh)).then(function () {
+        UI.closePassword();
+        UI.renderSettings(today);
+        UI.toast({
+          set: 'Contraseña puesta: tus datos ya se guardan cifrados. No la olvides.',
+          change: 'Contraseña cambiada.',
+          remove: 'Contraseña quitada: los datos se guardan sin cifrar.'
+        }[f.mode], { type: 'success', icon: f.mode === 'remove' ? '🔓' : '🔒', duration: 6000 });
+      });
+    }).catch(function (err) {
+      console.error(err);
+      UI.passwordBusy(false);
+      UI.passwordError('No se pudo completar: ' + (err && err.message || 'error') + '.');
+    });
+  }
+
+  /* ── Candado al arrancar ──────────────────────────────────── */
+
+  function onLockSubmit(e) {
+    e.preventDefault();
+    const pw = UI.els.lockInput.value;
+    if (!pw) { UI.lockMessage('Escribe la contraseña.'); return; }
+    UI.lockBusy(true);
+    S.unlock(pw).then(function (ok) {
+      if (!ok) {
+        UI.lockBusy(false);
+        UI.lockMessage('Contraseña incorrecta.');
+        UI.els.lockInput.select();
+        return;
+      }
+      UI.hideLock();
+      afterLoad();
+    });
+  }
+
+  function onLockForgot() {
+    if (!window.confirm('Sin la contraseña no se pueden abrir tus datos: nadie puede, tampoco esta app.\n\n' +
+                        'Si sigues, se empieza de cero sin datos. Lo cifrado se guarda aparte en este navegador ' +
+                        'por si la recuerdas, y las copias que exportaste siguen abriéndose con su contraseña.\n\n' +
+                        '¿Empezar de cero?')) return;
+    S.forgetAndReset();
+    UI.hideLock();
+    afterLoad();
+    UI.toast('Empezamos de cero. Si tienes una copia, impórtala desde Ajustes.', { icon: '🔓', duration: 7000 });
+  }
+
+  /* ── Duplicar ─────────────────────────────────────────────── */
+
+  function duplicateOpen() {
+    const f = UI.formState();
+    const item = f.kind && f.id ? S.getItem(f.kind, f.id) : null;
+    if (!item) return;
+    if (UI.formDirty() && !window.confirm('Se duplica lo que está guardado, sin los cambios que no has guardado. ¿Seguir?')) return;
+    UI.openForm(f.kind, item, { copy: true });
+    UI.toast('Es una copia: cambia lo que haga falta y pulsa Guardar.', { icon: '⧉' });
   }
 
   /* ── Eventos ──────────────────────────────────────────────── */
@@ -404,11 +561,20 @@ VD.app = (function () {
     // Un solo manejador para todo lo que navega, añade o abre: los botones
     // de las listas y del resumen se crean y se destruyen en cada repintado.
     document.addEventListener('click', function (e) {
+      // Fuera del menú del +, lo cierra.
+      if (!e.target.closest('#fabMenu, #fab')) UI.toggleFabMenu(false);
+
       const t = e.target.closest('[data-back], [data-view], [data-add], [data-migrate], [data-copy-done], ' +
                                  '[data-open-id], [data-tag-filter], [data-toggle-archived], [data-import-excel], ' +
+                                 '[data-accent], [data-layout-move], ' +
                                  '.item[data-id], .event[data-id]');
       if (!t) return;
       if (t.hasAttribute('data-back')) back();
+      else if (t.dataset.accent) S.setSetting('accent', t.dataset.accent);
+      else if (t.dataset.layoutMove) {
+        const p = t.dataset.layoutMove.split(':');
+        S.moveLayout(p[0], p[1], Number(p[2]));
+      }
       else if (t.hasAttribute('data-import-excel')) UI.openImport();
       else if (t.dataset.tagFilter) { UI.setTagFilter(t.dataset.kind, t.dataset.tagFilter); UI.renderList(t.dataset.kind, today); }
       else if (t.dataset.toggleArchived) { UI.toggleArchived(t.dataset.toggleArchived); UI.renderList(t.dataset.toggleArchived, today); }
@@ -416,7 +582,7 @@ VD.app = (function () {
       else if (t.dataset.copyDone) markCopyDone(t.dataset.copyDone);
       else if (t.dataset.migrate) toggleMigrated(t.dataset.kind, t.dataset.migrate);
       else if (t.dataset.view) go(t.dataset.view, true);
-      else if (t.dataset.add) UI.openForm(t.dataset.add, null);
+      else if (t.dataset.add) { UI.toggleFabMenu(false); UI.openForm(t.dataset.add, null); }
       else openItem(t.dataset.kind, t.dataset.id);
     });
 
@@ -439,6 +605,33 @@ VD.app = (function () {
     els.btnItemClose.addEventListener('click', UI.closeForm);
     els.btnItemDelete.addEventListener('click', deleteOpen);
     els.btnItemArchive.addEventListener('click', archiveOpen);
+    els.btnItemDuplicate.addEventListener('click', duplicateOpen);
+
+    // El +: en una sección añade ahí; en el Resumen abre el menú de secciones.
+    els.fab.addEventListener('click', function () {
+      const kind = UI.fabTarget();
+      if (kind) UI.openForm(kind, null);
+      else UI.toggleFabMenu();
+    });
+
+    // Ajustes → Resumen: las casillas Mostrar.
+    [els.layoutSections, els.layoutCards].forEach(function (list) {
+      list.addEventListener('change', function (e) {
+        const key = e.target.dataset.layoutToggle;
+        if (!key) return;
+        const p = key.split(':');
+        S.toggleLayout(p[0], p[1]);
+      });
+    });
+
+    els.btnShareJson.addEventListener('click', shareBackup);
+    els.btnPwSet.addEventListener('click', function () { UI.openPassword('set'); });
+    els.btnPwChange.addEventListener('click', function () { UI.openPassword('change'); });
+    els.btnPwRemove.addEventListener('click', function () { UI.openPassword('remove'); });
+    els.pwForm.addEventListener('submit', onPasswordSubmit);
+    els.btnPwClose.addEventListener('click', UI.closePassword);
+    els.btnPwCancel.addEventListener('click', UI.closePassword);
+    els.pwModal.addEventListener('close', function () { pendingBackup = null; UI.closePassword(); });
 
     els.importForm.addEventListener('submit', runImport);
     els.btnImportClose.addEventListener('click', UI.closeImport);
@@ -610,15 +803,32 @@ VD.app = (function () {
   function boot() {
     UI.init();
     S.load();
-    S.subscribe(onStoreEvent);
-    renderAll();
-    bind();
-    go(location.hash.slice(1) || 'home');
 
     listenInstall();                     // antes del manifest: si no, el aviso puede perderse
     linkManifest();
     registerServiceWorker();
     requestPersist();
+
+    // Con contraseña no hay datos hasta descifrarlos: primero el candado,
+    // y el resto del arranque cuando se abra.
+    const err = S.getLastError();
+    if (err && (err.type === 'locked' || err.type === 'nocrypto')) {
+      UI.els.lockForm.addEventListener('submit', onLockSubmit);
+      UI.els.btnLockForgot.addEventListener('click', onLockForgot);
+      UI.showLock(err.type === 'nocrypto'
+        ? 'Este navegador no puede descifrar. Ábrela desde https://alexlobar.github.io/VidaDigital/ o con Chrome o Edge.'
+        : '');
+      return;
+    }
+    afterLoad();
+  }
+
+  /** El resto del arranque, con los datos ya cargados (o descifrados). */
+  function afterLoad() {
+    S.subscribe(onStoreEvent);
+    renderAll();
+    bind();
+    go(location.hash.slice(1) || 'home');
 
     // Avisos: datos dañados > almacenamiento bloqueado > recordatorio de copia.
     const err = S.getLastError();

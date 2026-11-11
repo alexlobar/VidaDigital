@@ -103,6 +103,23 @@ VD.store = (function () {
     return item.name ? item : null;
   }
 
+  /**
+   * Orden y visibilidad de las tarjetas o secciones del Resumen:
+   * { order: [ids], hidden: [ids] }. Los ids que ya no existen se caen y
+   * los que falten (una tarjeta nueva de una versión posterior) se añaden
+   * al final, visibles: si no, nunca los verías.
+   */
+  function cleanLayout(raw, catalog) {
+    const ids = catalog.map(function (c) { return c.id; });
+    const r = raw && typeof raw === 'object' ? raw : {};
+    const order = (Array.isArray(r.order) ? r.order : [])
+      .filter(function (id, i, all) { return ids.indexOf(id) >= 0 && all.indexOf(id) === i; });
+    ids.forEach(function (id) { if (order.indexOf(id) < 0) order.push(id); });
+    const hidden = (Array.isArray(r.hidden) ? r.hidden : [])
+      .filter(function (id, i, all) { return ids.indexOf(id) >= 0 && all.indexOf(id) === i; });
+    return { order: order, hidden: hidden };
+  }
+
   function cleanState(raw) {
     const src = raw && typeof raw === 'object' ? raw : {};
     const s = src.settings && typeof src.settings === 'object' ? src.settings : {};
@@ -111,8 +128,11 @@ VD.store = (function () {
       version: VERSION,
       settings: {
         theme: THEMES.indexOf(s.theme) >= 0 ? s.theme : 'dark',
+        accent: U.byId(U.ACCENTS, s.accent) ? s.accent : U.ACCENTS[0].id,
         backupDays: BACKUP_DAYS.indexOf(Number(s.backupDays)) >= 0 ? Number(s.backupDays) : 14,
-        lastExport: U.isValidKey(s.lastExport) ? s.lastExport : null
+        lastExport: U.isValidKey(s.lastExport) ? s.lastExport : null,
+        homeCards: cleanLayout(s.homeCards, U.HOME_CARDS),
+        homeSections: cleanLayout(s.homeSections, U.KINDS)
       }
     };
 
@@ -163,6 +183,157 @@ VD.store = (function () {
     return incoming;
   }
 
+  /* ── Cifrado ──────────────────────────────────────────────
+     Con contraseña, lo que se guarda en localStorage (y las copias
+     exportadas) es un sobre cifrado, no el JSON a la vista:
+
+       { app: 'vida-digital', enc: 1, iter, salt, iv, data }
+
+     · La clave sale de la contraseña con PBKDF2-SHA-256 (600 000 vueltas,
+       lo que recomienda OWASP) y una sal aleatoria: probar contraseñas a
+       ciegas cuesta lo mismo que esas vueltas por cada intento.
+     · Se cifra con AES-GCM de 256 bits y un IV nuevo en cada guardado. GCM
+       además detecta cualquier cambio en los datos: una contraseña mala o
+       un sobre manipulado dan error, nunca datos basura.
+     · La contraseña no se guarda en ningún sitio. Solo vive en memoria la
+       clave derivada, y no se puede extraer. Si se olvida la contraseña,
+       no hay forma de recuperar los datos: es lo que hace útil el cifrado.
+     ─────────────────────────────────────────────────────── */
+
+  const KDF_ITER = 600000;
+  const ENC_APP = 'vida-digital';
+
+  let cryptoKey = null;      // CryptoKey AES-GCM, solo si hay contraseña
+  let cryptoSalt = null;     // sal de la contraseña actual (Uint8Array)
+  let verifier = null;       // un sobre pequeño para comprobar la contraseña
+  let lockedEnvelope = null; // el sobre leído al arrancar, hasta desbloquear
+  let writeChain = Promise.resolve();
+
+  function toB64(bytes) {
+    let s = '';
+    const arr = new Uint8Array(bytes);
+    for (let i = 0; i < arr.length; i++) s += String.fromCharCode(arr[i]);
+    return btoa(s);
+  }
+
+  function fromB64(text) {
+    const s = atob(text);
+    const out = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+    return out;
+  }
+
+  function isEnvelope(obj) {
+    return !!obj && obj.enc === 1 && typeof obj.data === 'string' &&
+           typeof obj.salt === 'string' && typeof obj.iv === 'string';
+  }
+
+  function cryptoAvailable() {
+    return !!(window.crypto && window.crypto.subtle);
+  }
+
+  function deriveKey(password, salt, iter) {
+    const enc = new TextEncoder();
+    return crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey'])
+      .then(function (base) {
+        return crypto.subtle.deriveKey(
+          { name: 'PBKDF2', salt: salt, iterations: iter, hash: 'SHA-256' },
+          base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+      });
+  }
+
+  function seal(obj, key, salt) {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const plain = new TextEncoder().encode(JSON.stringify(obj));
+    return crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, key, plain).then(function (data) {
+      return { app: ENC_APP, enc: 1, iter: KDF_ITER, salt: toB64(salt), iv: toB64(iv), data: toB64(data) };
+    });
+  }
+
+  /** Sobre → objeto. Rechaza (OperationError) si la clave no es la buena. */
+  function unseal(envelope, key) {
+    return crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(envelope.iv) }, key, fromB64(envelope.data))
+      .then(function (plain) { return JSON.parse(new TextDecoder().decode(plain)); });
+  }
+
+  /** Abre un sobre con una contraseña. Devuelve el objeto o null si no es la buena. */
+  function openWithPassword(envelope, password) {
+    const salt = fromB64(envelope.salt);
+    let key = null;
+    return deriveKey(password, salt, Number(envelope.iter) || KDF_ITER)
+      .then(function (k) { key = k; return unseal(envelope, k); })
+      .then(function (obj) { return { obj: obj, key: key, salt: salt }; })
+      .catch(function () { return null; });
+  }
+
+  function remember(key, salt) {
+    cryptoKey = key;
+    cryptoSalt = salt;
+    return seal({ ok: true }, key, salt).then(function (env) { verifier = env; });
+  }
+
+  function isEncrypted() { return !!cryptoKey; }
+  function isLocked() { return !!lockedEnvelope; }
+
+  /** Desbloquea los datos al arrancar. true si la contraseña era la buena. */
+  function unlock(password) {
+    if (!lockedEnvelope) return Promise.resolve(true);
+    return openWithPassword(lockedEnvelope, password).then(function (res) {
+      if (!res) return false;
+      return remember(res.key, res.salt).then(function () {
+        const incoming = Math.floor(Number(res.obj && res.obj.version)) || 1;
+        state = cleanState(res.obj);
+        migrate(incoming);
+        lockedEnvelope = null;
+        lastError = null;
+        return true;
+      });
+    });
+  }
+
+  /** ¿Es esta la contraseña actual? Para cambiarla o quitarla. */
+  function checkPassword(password) {
+    if (!verifier) return Promise.resolve(false);
+    return openWithPassword(verifier, password).then(function (res) { return !!res; });
+  }
+
+  /** Pone o cambia la contraseña y vuelve a guardar todo cifrado con ella. */
+  function setPassword(password) {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    return deriveKey(password, salt, KDF_ITER)
+      .then(function (key) { return remember(key, salt); })
+      .then(function () { return save(true); });
+  }
+
+  /** Quita la contraseña: los datos vuelven a guardarse sin cifrar. */
+  function removePassword() {
+    cryptoKey = null;
+    cryptoSalt = null;
+    verifier = null;
+    return Promise.resolve(save(true));
+  }
+
+  /**
+   * "He olvidado la contraseña": se empieza de cero, pero el sobre cifrado
+   * se guarda aparte por si un día la recuerdas (se puede importar).
+   */
+  function forgetAndReset() {
+    try { if (lockedEnvelope) localStorage.setItem(BACKUP_KEY, JSON.stringify(lockedEnvelope)); } catch (e) { /* sin espacio */ }
+    lockedEnvelope = null;
+    cryptoKey = null;
+    cryptoSalt = null;
+    verifier = null;
+    lastError = null;
+    state = defaultState();
+    save(true);
+  }
+
+  /** El texto de una copia exportada: cifrada si hay contraseña. */
+  function exportText() {
+    if (!cryptoKey) return Promise.resolve(JSON.stringify(state, null, 2));
+    return seal(state, cryptoKey, cryptoSalt).then(function (env) { return JSON.stringify(env); });
+  }
+
   /* ── Carga y guardado ─────────────────────────────────────── */
 
   function load() {
@@ -188,6 +359,16 @@ VD.store = (function () {
 
     try {
       const parsed = JSON.parse(raw);
+
+      // Cifrado: no hay estado hasta que se escriba la contraseña. Nada se
+      // guarda mientras tanto (writeNow lo comprueba).
+      if (isEnvelope(parsed)) {
+        lockedEnvelope = parsed;
+        state = null;
+        lastError = { type: cryptoAvailable() ? 'locked' : 'nocrypto' };
+        return null;
+      }
+
       const incoming = Math.floor(Number(parsed && parsed.version)) || 1;
       state = cleanState(parsed);
       migrate(incoming);
@@ -203,10 +384,9 @@ VD.store = (function () {
     return state;
   }
 
-  function writeNow() {
-    if (!writable) return false;
+  function writeText(text) {
     try {
-      localStorage.setItem(KEY, JSON.stringify(state));
+      localStorage.setItem(KEY, text);
       return true;
     } catch (err) {
       console.error('No se pudo guardar:', err);
@@ -214,6 +394,30 @@ VD.store = (function () {
       emit('error', lastError);
       return false;
     }
+  }
+
+  /**
+   * Sin contraseña, escribe al momento. Con ella, cifrar es asíncrono: las
+   * escrituras se encadenan para que una más antigua no pise a una más
+   * nueva. Devuelve true o una promesa de true/false.
+   */
+  function writeNow() {
+    if (!writable || !state) return false;     // bloqueada: no hay nada que guardar
+    if (!cryptoKey) return writeText(JSON.stringify(state));
+
+    const snapshot = JSON.parse(JSON.stringify(state));
+    const key = cryptoKey;
+    const salt = cryptoSalt;
+    writeChain = writeChain
+      .then(function () { return seal(snapshot, key, salt); })
+      .then(function (env) { return writeText(JSON.stringify(env)); })
+      .catch(function (err) {
+        console.error('No se pudo cifrar:', err);
+        lastError = { type: 'write' };
+        emit('error', lastError);
+        return false;
+      });
+    return writeChain;
   }
 
   // Escribir en el buscador o guardar varias cosas seguidas genera ráfagas:
@@ -227,7 +431,13 @@ VD.store = (function () {
   }
 
   // Cerrar la pestaña con una escritura pendiente perdería el último cambio.
+  // Con cifrado la escritura es asíncrona y `pagehide` puede no esperarla:
+  // por eso también se guarda al pasar a segundo plano, que en el móvil
+  // llega antes (cambiar de app, bloquear la pantalla).
   window.addEventListener('pagehide', function () { save(true); });
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') save(true);
+  });
 
   /* Tope de localStorage por origen en Chrome, Firefox y Safari: 5 MiB,
      contados en caracteres. El origen es alexlobar.github.io entero, así
@@ -240,7 +450,8 @@ VD.store = (function () {
    * falsee la cifra. `others` es lo de otras apps del mismo origen.
    */
   function storageUse() {
-    let mine = KEY.length + JSON.stringify(state).length;
+    // Cifrado ocupa un tercio más (base64): se cuenta para no quedarse corto.
+    let mine = KEY.length + Math.round(JSON.stringify(state).length * (cryptoKey ? 1.34 : 1));
     let others = 0;
     try {
       for (let i = 0; i < localStorage.length; i++) {
@@ -463,6 +674,27 @@ VD.store = (function () {
     commit('settings');
   }
 
+  /* Tarjetas (list 'homeCards') y secciones ('homeSections') del Resumen. */
+
+  /** Sube (dir -1) o baja (dir 1) un elemento un puesto. */
+  function moveLayout(list, id, dir) {
+    const order = state.settings[list].order.slice();
+    const i = order.indexOf(id);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= order.length) return;
+    order[i] = order[j];
+    order[j] = id;
+    setSetting(list, { order: order, hidden: state.settings[list].hidden });
+  }
+
+  function toggleLayout(list, id) {
+    const hidden = state.settings[list].hidden.slice();
+    const i = hidden.indexOf(id);
+    if (i >= 0) hidden.splice(i, 1);
+    else hidden.push(id);
+    setSetting(list, { order: state.settings[list].order, hidden: hidden });
+  }
+
   /** Importar una copia: misma puerta que la carga, saneado y migraciones. */
   function replaceState(raw) {
     const incoming = Math.floor(Number(raw && raw.version)) || 1;
@@ -475,7 +707,11 @@ VD.store = (function () {
     emit('replace');
   }
 
+  /** Borrar todo: datos y contraseña. Se empieza de cero, sin cifrar. */
   function reset() {
+    cryptoKey = null;
+    cryptoSalt = null;
+    verifier = null;
     state = defaultState();
     save(true);
     emit('replace');
@@ -483,6 +719,10 @@ VD.store = (function () {
 
   return {
     load: load, save: save, subscribe: subscribe,
+    isEncrypted: isEncrypted, isLocked: isLocked, cryptoAvailable: cryptoAvailable, isEnvelope: isEnvelope,
+    unlock: unlock, checkPassword: checkPassword, setPassword: setPassword, removePassword: removePassword,
+    forgetAndReset: forgetAndReset, exportText: exportText, openBackup: openWithPassword,
+    moveLayout: moveLayout, toggleLayout: toggleLayout,
     getState: getState, getSettings: getSettings, getLastError: getLastError,
     getItems: getItems, getItem: getItem, getLinked: getLinked, resolveLink: resolveLink,
     saveItem: saveItem, removeItem: removeItem, restoreItem: restoreItem,

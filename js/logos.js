@@ -379,5 +379,12 @@ VD.logos = (function () {
     if (!ALIASES[t] && !TEXT[t]) ALIASES[t] = k;
   });
 
-  return { find: find, get: get, titles: titles };
+  /** Para el selector visual: [{ slug, title }] de todas, por título. */
+  function all() {
+    return Object.keys(ICONS).concat(Object.keys(TEXT))
+      .map(function (k) { return { slug: k, title: (ICONS[k] || TEXT[k])[0] }; })
+      .sort(function (a, b) { return a.title.localeCompare(b.title, 'es', { sensitivity: 'base' }); });
+  }
+
+  return { find: find, get: get, titles: titles, all: all };
 })();

@@ -15,11 +15,40 @@ VD.utils = (function () {
      Aparece en otros dos sitios: CACHE en sw.js (un service worker no
      puede leer este archivo) y data-build en index.html. Si se
      desincronizan, la app lo avisa al arrancar. ──────────────── */
-  const VERSION = '2.2.0';
-  const BUILD_DATE = '2026-11-10';
+  const VERSION = '2.3.0';
+  const BUILD_DATE = '2026-11-11';
   /* Igual que PREFIX en sw.js. Único en alexlobar.github.io: no puede ser
      el comienzo del prefijo de otra app (ver Service-worker-cache.md). */
   const CACHE_PREFIX = 'vida-digital-v';
+
+  /* ── Colores de acento ────────────────────────────────────
+     Cada uno con su versión para el tema oscuro y el claro: el mismo
+     color no se lee igual sobre negro que sobre blanco. `on` es el color
+     del texto encima de un botón relleno. ui.applyTheme() los pasa a los
+     tokens --accent*; ningún componente escribe un color de marca. ── */
+  const ACCENTS = [
+    { id: 'teal',    name: 'Turquesa', dark: ['#2dd4bf', '#5eead4', '#04211d'], light: ['#0f766e', '#115e59', '#ffffff'] },
+    { id: 'blue',    name: 'Azul',     dark: ['#60a5fa', '#93c5fd', '#0b1b33'], light: ['#1d4ed8', '#1e40af', '#ffffff'] },
+    { id: 'violet',  name: 'Violeta',  dark: ['#a78bfa', '#c4b5fd', '#1b1036'], light: ['#6d28d9', '#5b21b6', '#ffffff'] },
+    { id: 'pink',    name: 'Rosa',     dark: ['#f472b6', '#f9a8d4', '#2d0a1c'], light: ['#be185d', '#9d174d', '#ffffff'] },
+    { id: 'red',     name: 'Rojo',     dark: ['#f87171', '#fca5a5', '#2b0707'], light: ['#b91c1c', '#991b1b', '#ffffff'] },
+    { id: 'orange',  name: 'Naranja',  dark: ['#fb923c', '#fdba74', '#2a1204'], light: ['#c2410c', '#9a3412', '#ffffff'] },
+    { id: 'amber',   name: 'Ámbar',    dark: ['#fbbf24', '#fcd34d', '#2a1a02'], light: ['#b45309', '#92400e', '#ffffff'] },
+    { id: 'green',   name: 'Verde',    dark: ['#4ade80', '#86efac', '#052e16'], light: ['#15803d', '#166534', '#ffffff'] }
+  ];
+
+  /* ── Tarjetas del Resumen ─────────────────────────────────
+     El orden de partida. Cada una vive en index.html con el id
+     `<id>Card`; desde Ajustes se reordenan y se ocultan. ───── */
+  const HOME_CARDS = [
+    { id: 'migration', name: 'Cambio de móvil' },
+    { id: 'pc',        name: 'Cambio de ordenador' },
+    { id: 'spend',     name: 'Gasto' },
+    { id: 'upcoming',  name: 'Próximos 30 días' },
+    { id: 'security',  name: 'Seguridad' },
+    { id: 'copies',    name: 'Copias de seguridad' },
+    { id: 'cleanup',   name: 'Cuentas para borrar' }
+  ];
 
   /* ── Catálogos ────────────────────────────────────────────
      Un elemento guarda solo el `id`; el nombre y el icono salen de aquí.
@@ -573,6 +602,7 @@ VD.utils = (function () {
 
   return {
     version: VERSION, buildDate: buildDate, CACHE_PREFIX: CACHE_PREFIX,
+    ACCENTS: ACCENTS, HOME_CARDS: HOME_CARDS,
     KINDS: KINDS, kindById: kindById,
     PERIODS: PERIODS, periodById: periodById,
     TWOFA: TWOFA, DEVICE_STATUS: DEVICE_STATUS, ACCOUNT_STATUS: ACCOUNT_STATUS, LOGIN_METHODS: LOGIN_METHODS, MIGRATION: MIGRATION,

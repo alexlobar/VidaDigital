@@ -2,10 +2,11 @@
 
 Tus suscripciones, cuentas, apps, dispositivos, licencias, copias de seguridad y webs en un solo sitio, enlazados entre sí, con el gasto total, lo que vence en los próximos 30 días, qué cuentas no tienen verificación en dos pasos, qué copias tocan y cómo va el cambio de móvil. HTML, CSS y JavaScript vanilla: sin dependencias, sin build, offline, con los datos en `localStorage`.
 
-**Versión documentada: 2.2.0** (10-11-2026) · esquema de datos **1**.
+**Versión documentada: 2.3.0** (11-11-2026) · esquema de datos **1**.
 
 | Versión | Cambios |
 |---|---|
+| 2.3.0 | **Contraseña** (datos y copias cifrados con AES-256). **Guardar copia en Drive** con el menú Compartir. **Duplicar**. **Selector visual de logos** con vista previa. **Resumen a tu gusto** (ordenar y ocultar tarjetas y secciones). **Botón + flotante**. **Color de acento** |
 | 2.2.0 | **Buscador global** en el Resumen. Sección **Programas** con su tarjeta *Cambio de ordenador*. **Etiquetas** libres con filtro en cada lista. **Archivar**. **Importar desde Excel** (pegar celdas o CSV) con plantilla |
 | 2.1.0 | Secciones **Licencias y claves** y **Copias de seguridad** (con «Hecha hoy» y tarjeta en el Resumen). **Enlaces** entre elementos de cualquier sección, con sugerencias |
 | 2.0.0 | Sin barra de navegación: el Resumen es el menú y cada sección vuelve con ‹. Logos de marca en todas las listas. Pruebas gratuitas, suscripciones compartidas (tu parte) y cuentas para borrar |
@@ -63,7 +64,21 @@ Orden de carga = orden de dependencia: `utils → logos → store → calc → s
 
 **Importar desde Excel** (en Ajustes y en la bienvenida). Se pegan celdas copiadas de Excel (cabecera incluida) o se elige un CSV. El formato es el mismo de *Exportar a Excel*: una columna `tipo` con la sección (suscripción, cuenta, app, programa, dispositivo, licencia, copia o web; singular o plural) y una columna por campo, con el nombre de la etiqueta del formulario. Solo es obligatoria la del nombre («Servicio» o «Nombre»). Se entienden fechas `18/12/2026`, `18-12-26` o `2026-12-18`, importes `13,99` o `1.234,56 €`, casillas `sí`/`x`, y los desplegables por su texto («Cada mes», «App autenticadora»), sin importar tildes ni mayúsculas. Antes de importar dice cuántas filas entran, cuáles se saltan y por qué, y qué columnas no reconoce. Si ya existe algo con el mismo nombre en la misma sección, se completa con la fila (las celdas vacías no borran nada) en vez de duplicarlo. Sin columna `tipo`, se elige la sección en el desplegable. El enlace *plantilla* descarga un CSV con la cabecera y un ejemplo por sección.
 
-**Ajustes.** Tema, recordatorio de copia, exportar e importar JSON, exportar CSV, importar desde Excel, botón *Instalar*, línea de versión y espacio (`Version-y-espacio.md`) y borrar todo.
+**Contraseña** (Ajustes → Contraseña). *Poner contraseña* (mínimo 8 caracteres, dos veces) cifra los datos guardados y, desde entonces, la app arranca en una pantalla de candado que la pide. *Cambiar* y *Quitar* piden la actual. Las copias que se descargan o comparten también salen cifradas; al importarlas se pide la contraseña que tenía la app al exportarlas. *He olvidado la contraseña* (en el candado) empieza de cero y guarda el sobre cifrado aparte por si la recuerdas. El CSV de *Exportar a Excel* no va cifrado.
+
+**Guardar copia en Drive.** Abre el menú *Compartir* del sistema con la copia: en el móvil, Drive, OneDrive, un correo o un chat contigo mismo. Si el navegador no comparte archivos, la descarga. El aviso de copia pendiente usa este mismo botón.
+
+**Duplicar** (en el formulario). Abre un elemento nuevo con todo lo del original, enlaces y etiquetas incluidos, y «(copia)» en el nombre. No se guarda hasta pulsar Guardar.
+
+**Selector de logos.** Junto al campo *Logo* hay una vista previa del logo que saldrá (cambia mientras escribes el nombre, la web…) y el botón *Elegir*, que abre una cuadrícula con buscador de todas las marcas. *Automático* vuelve a dejar que la app lo adivine.
+
+**Resumen a tu gusto** (Ajustes → Resumen). Dos listas, *Secciones del menú* y *Tarjetas*, con ↑ ↓ para ordenar y una casilla para mostrar u ocultar. Una sección oculta sigue existiendo y sale en el buscador. Las tarjetas que dependen de los datos (cambios de equipo, copias, cuentas para borrar) solo aparecen cuando tienen algo, aunque estén marcadas.
+
+**Botón + flotante** (abajo a la derecha). En una sección añade a esa sección; en el Resumen abre un menú para elegir dónde. En Ajustes no sale. En el móvil sustituye al *+ Añadir* de la cabecera.
+
+**Color de acento** (Ajustes → Apariencia). Ocho colores, cada uno ajustado para el tema oscuro y el claro.
+
+**Ajustes.** Tema y color, Resumen, contraseña, recordatorio de copia, guardar en Drive, descargar e importar copia, exportar CSV, importar desde Excel, botón *Instalar*, línea de versión y espacio (`Version-y-espacio.md`) y borrar todo.
 
 Cada elemento lleva el logo de su marca: se busca por el campo *Logo* si lo rellenas, luego por el nombre, la web y cada palabra del nombre o del modelo («Pixel 8» → Google). Si la app no conoce la marca, salen las iniciales sobre un color fijo para ese nombre.
 
@@ -85,9 +100,9 @@ Cada lista se agrupa por categoría en el orden del catálogo, y a partir de 6 e
 
 | Dónde | Qué |
 |---|---|
-| `js/utils.js` | `VERSION = '2.2.0'` y `BUILD_DATE` — la fuente de verdad |
-| `sw.js` | `CACHE = 'vida-digital-v2.2.0'` |
-| `index.html` | `<html data-build="2.2.0">` |
+| `js/utils.js` | `VERSION = '2.3.0'` y `BUILD_DATE` — la fuente de verdad |
+| `sw.js` | `CACHE = 'vida-digital-v2.3.0'` |
+| `index.html` | `<html data-build="2.3.0">` |
 
 Si no coinciden, la app avisa al arrancar de que el navegador ha mezclado versiones.
 
@@ -137,6 +152,12 @@ Clave `vidaDigital.v1` (copia de rescate en `vidaDigital.corrupt-backup`).
                  "transfer": "", "url": "" }],
   // Todos los elementos llevan además "links": ["accounts:accounts_x1y2z3a", …],
   // "tags": ["trabajo", "familia"] y "archived": false
+}
+// settings además: "accent": "teal", "homeCards" y "homeSections": { "order": [ids], "hidden": [ids] }
+
+// Con contraseña, lo guardado (y las copias) es un sobre en vez de lo de arriba:
+{ "app": "vida-digital", "enc": 1, "iter": 600000,
+  "salt": "…base64…", "iv": "…base64…", "data": "…base64: el JSON de arriba cifrado…"
   "devices":  [{ "…": "…", "model": "", "serial": "", "purchaseDate": null, "warrantyUntil": null,
                  "price": null, "status": "uso", "notes": "" }],
   "webs":     [{ "…": "…", "url": "", "provider": "", "expires": null, "price": null, "autoRenew": false, "notes": "" }]
@@ -163,7 +184,12 @@ Todo lo que se carga o se importa pasa por `cleanState()` en `store.js`, que rec
 
 ## Decisiones que conviene conocer
 
-- **No hay contraseñas, PIN ni números de tarjeta.** `localStorage` no va cifrado: cualquier extensión del navegador o quien abra el ordenador podría leerlo, y una copia exportada es texto plano. Para eso está un gestor de contraseñas; aquí se apunta *dónde* tienes cuenta y *cómo* se recupera.
+- **No hay campos de contraseñas, PIN ni números de tarjeta.** Sin contraseña, `localStorage` no va cifrado: cualquier extensión del navegador o quien abra el ordenador podría leerlo. Con contraseña sí va cifrado, pero sigue sin ser un gestor de contraseñas (no rellena, no genera, no se sincroniza): aquí se apunta *dónde* tienes cuenta y *cómo* se recupera.
+- **Cómo se cifra** (`store.js`). La clave sale de la contraseña con PBKDF2-SHA-256, 600 000 vueltas (lo que recomienda OWASP) y una sal aleatoria de 16 bytes; se cifra con AES-GCM de 256 bits y un IV nuevo en cada guardado. GCM detecta cualquier cambio: una contraseña mala o un archivo manipulado dan error, nunca datos a medias. La contraseña no se guarda; en memoria solo vive la clave derivada, no extraíble. Todo con la Web Crypto del navegador, sin librerías. Derivar la clave tarda medio segundo o un segundo: es a propósito, para que probar contraseñas a ciegas sea lento.
+- **Con cifrado, guardar es asíncrono.** Las escrituras se encadenan para que una vieja no pise a una nueva, y además de en `pagehide` se guarda al pasar a segundo plano (`visibilitychange`), que en el móvil llega antes y da tiempo a cifrar.
+- **Olvidar la contraseña = perder los datos.** Es la condición de que el cifrado sirva para algo. *He olvidado la contraseña* no descifra nada: empieza de cero y guarda el sobre cifrado en `vidaDigital.corrupt-backup` por si la recuerdas.
+- **Compartir y no solo descargar.** En el móvil, una descarga se queda en *Descargas* y se pierde con el móvil. El menú Compartir (Web Share API) la lleva directamente a Drive. Chrome no deja compartir cualquier tipo: si `.json` no vale, se prueba como `.json.txt`, que *Importar copia* acepta.
+- **El acento va en el `style` de `<html>`**, no en el CSS: manda sobre los tokens de los dos temas sin repetir cada color en la hoja de estilos.
 - **La app empieza vacía y tus datos no van en el código.** El repositorio de GitHub Pages es público; meter tus cuentas como datos de partida las publicaría. Se cargan importando un JSON que no se sube.
 - **El próximo cobro no se reescribe.** Se guarda la fecha que pusiste y `calc.nextCharge()` le suma periodos enteros hasta hoy, siempre desde la fecha original: un cobro el día 31 pasa por el 28 de febrero y vuelve al 31 en marzo.
 - **Un dominio caducado que no se renueva solo se sigue enseñando** (hasta 60 días) en el resumen: es justo lo que hay que ver.

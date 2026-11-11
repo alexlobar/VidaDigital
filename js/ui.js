@@ -49,7 +49,13 @@ VD.ui = (function () {
       'migrationActions', 'btnResetMigration', 'cleanupCard', 'cleanupLine', 'cleanupList',
       'copiesCard', 'copiesLine', 'copiesHomeList',
       'pcCard', 'pcLine', 'pcTrack', 'pcFill', 'pcList', 'pcActions', 'btnResetPc',
-      'globalSearch', 'globalResults', 'homeBody',
+      'globalSearch', 'globalResults', 'homeBody', 'homeGrid', 'spendCard', 'upcomingCard', 'securityCard',
+      'setAccent', 'layoutSections', 'layoutCards', 'btnShareJson', 'btnItemDuplicate',
+      'pwStatus', 'btnPwSet', 'btnPwChange', 'btnPwRemove',
+      'pwModal', 'pwForm', 'pwTitle', 'pwIntro', 'pwCurrentField', 'pwCurrentLabel', 'pwCurrent',
+      'pwNewField', 'pwNew', 'pwRepeatField', 'pwRepeat', 'pwError', 'btnPwClose', 'btnPwCancel', 'btnPwSubmit',
+      'lockScreen', 'lockForm', 'lockInput', 'lockError', 'lockSubmit', 'btnLockForgot',
+      'fab', 'fabMenu',
       'itemModal', 'itemForm', 'itemTitle', 'itemFields', 'itemError',
       'btnItemClose', 'btnItemDelete', 'btnItemCancel', 'btnItemArchive',
       'importModal', 'importForm', 'importText', 'importKind', 'importResult',
@@ -82,6 +88,12 @@ VD.ui = (function () {
 
     // Añadir y quitar enlaces es estado del formulario, no del almacén:
     // se queda aquí hasta que se pulse Guardar.
+    // La vista previa del logo sigue lo que se escribe en los campos que la deciden.
+    els.itemFields.addEventListener('input', function (e) {
+      if (['name', 'logo', 'url', 'model', 'where', 'seller', 'provider', 'source', 'account'].indexOf(e.target.name) >= 0) {
+        updateLogoPreview();
+      }
+    });
     els.itemFields.addEventListener('change', function (e) {
       if (e.target.id !== 'formLinkPicker' || !e.target.value) return;
       formLinks.push(e.target.value);
@@ -94,6 +106,11 @@ VD.ui = (function () {
         renderLinks();
         return;
       }
+      const pick = e.target.closest('[data-logo-pick]');
+      if (pick) { toggleLogoPicker(); return; }
+      const choice = e.target.closest('[data-logo-choose]');
+      if (choice) { chooseLogo(choice.dataset.logoChoose); return; }
+
       // Etiqueta sugerida: se añade al final si no estaba.
       const add = e.target.closest('[data-add-tag]');
       const input = els.itemForm.elements.tags;
@@ -119,13 +136,65 @@ VD.ui = (function () {
   function showView(name) {
     if (VIEWS.indexOf(name) < 0) name = 'home';
     VIEWS.forEach(function (v) { els['view-' + v].hidden = v !== name; });
+    currentView = name;
+    // El + flotante: en una sección añade ahí; en el Resumen pregunta dónde;
+    // en Ajustes no hay nada que añadir.
+    els.fab.hidden = name === 'settings';
+    toggleFabMenu(false);
     window.scrollTo(0, 0);
     return name;
   }
 
-  function applyTheme(theme) {
-    document.documentElement.dataset.theme = theme;
+  /** "#2dd4bf" + 0.14 → "rgba(45, 212, 191, 0.14)" */
+  function rgba(hex, alpha) {
+    const n = parseInt(hex.slice(1), 16);
+    return 'rgba(' + (n >> 16 & 255) + ', ' + (n >> 8 & 255) + ', ' + (n & 255) + ', ' + alpha + ')';
+  }
+
+  /**
+   * Tema y color de acento. El acento se escribe en el style de <html>,
+   * que manda sobre las hojas de estilo: así sirve igual en claro y oscuro
+   * sin repetir cada color en el CSS.
+   */
+  function applyTheme(theme, accentId) {
+    const root = document.documentElement;
+    root.dataset.theme = theme;
     if (els.themeMeta) els.themeMeta.setAttribute('content', THEME_COLOR[theme] || THEME_COLOR.dark);
+
+    const accent = U.byId(U.ACCENTS, accentId) || U.ACCENTS[0];
+    const c = theme === 'light' ? accent.light : accent.dark;
+    root.style.setProperty('--accent', c[0]);
+    root.style.setProperty('--accent-hover', c[1]);
+    // Como texto, en oscuro se lee mejor la versión clara; en claro, la oscura.
+    root.style.setProperty('--accent-text', theme === 'light' ? c[0] : c[1]);
+    root.style.setProperty('--on-accent', c[2]);
+    root.style.setProperty('--accent-soft', rgba(c[0], theme === 'light' ? 0.1 : 0.14));
+  }
+
+  /* ── Botón + flotante ─────────────────────────────────────── */
+
+  let currentView = 'home';
+
+  /** Abre o cierra el menú de secciones del + (solo en el Resumen). */
+  function toggleFabMenu(force) {
+    const open = force === undefined ? els.fabMenu.hidden : force;
+    if (open) {
+      const hidden = S.getState() ? S.getSettings().homeSections.hidden : [];
+      els.fabMenu.textContent = '';
+      U.KINDS.filter(function (k) { return hidden.indexOf(k.id) < 0; }).forEach(function (k) {
+        els.fabMenu.appendChild(el('button', { type: 'button', class: 'fab-menu__item', 'data-add': k.id }, [
+          el('span', { 'aria-hidden': 'true', text: k.icon }), k.add
+        ]));
+      });
+    }
+    els.fabMenu.hidden = !open;
+    els.fab.setAttribute('aria-expanded', open ? 'true' : 'false');
+    els.fab.classList.toggle('fab--open', open);
+  }
+
+  /** Lo que hace el +: el tipo a añadir, o null si toca abrir el menú. */
+  function fabTarget() {
+    return U.kindById(currentView) ? currentView : null;
   }
 
   /* ── Piezas comunes ───────────────────────────────────────── */
@@ -302,9 +371,23 @@ VD.ui = (function () {
       });
     }
 
+    // Orden y visibilidad elegidos en Ajustes → Resumen. Lo oculto a mano
+    // se oculta aunque tenga algo que enseñar; lo visible solo sale si
+    // tiene contenido (las tarjetas que dependen de los datos ya se han
+    // ocultado arriba si no lo tienen).
+    const layout = S.getSettings().homeCards;
+    layout.order.forEach(function (id) {
+      const card = els[id + 'Card'];
+      if (!card) return;
+      els.homeGrid.appendChild(card);
+      if (layout.hidden.indexOf(id) >= 0) card.hidden = true;
+    });
+
     // El menú: un recuadro por sección con su dato más útil.
+    const sections = S.getSettings().homeSections;
     els.homeTiles.textContent = '';
-    U.KINDS.forEach(function (k) {
+    sections.order.map(U.kindById).forEach(function (k) {
+      if (!k || sections.hidden.indexOf(k.id) >= 0) return;
       els.homeTiles.appendChild(el('button', { type: 'button', class: 'tile', 'data-view': k.id }, [
         el('span', { class: 'tile__icon', 'aria-hidden': 'true', text: k.icon }),
         el('span', { class: 'tile__label', text: k.name }),
@@ -796,12 +879,91 @@ VD.ui = (function () {
       }
     }
 
+    // Logo: vista previa de lo que saldrá (se actualiza al escribir el
+    // nombre, la web…) y un botón para elegirlo de una cuadrícula.
+    if (f.key === 'logo') {
+      input = el('div', { class: 'logo-field' }, [
+        el('span', { class: 'logo-field__preview', id: 'logoPreview' }),
+        input,
+        el('button', { type: 'button', class: 'btn', 'data-logo-pick': '', 'aria-expanded': 'false',
+                       'aria-controls': 'logoPicker', text: 'Elegir' })
+      ]);
+      suggest = el('div', { class: 'logo-picker', id: 'logoPicker', hidden: true });
+    }
+
     return el('div', { class: 'field' + (f.half ? ' field--half' : '') }, [
       el('label', { class: 'field__label', for: id, text: f.label + (f.required ? ' *' : '') }),
       input,
       suggest,
       f.hint ? el('p', { class: 'field__hint', text: f.hint }) : null
     ]);
+  }
+
+  /* ── Selector de logos ────────────────────────────────────── */
+
+  /** Lo escrito en el formulario, con la forma de un elemento, para buscarle logo. */
+  function formProbe() {
+    const form = els.itemForm.elements;
+    const probe = { name: form.name ? form.name.value : '' };
+    ['logo', 'url', 'model', 'where', 'seller', 'provider', 'source', 'account'].forEach(function (k) {
+      if (form[k]) probe[k] = form[k].value;
+    });
+    return probe;
+  }
+
+  function updateLogoPreview() {
+    const box = document.getElementById('logoPreview');
+    if (!box) return;
+    const probe = formProbe();
+    box.textContent = '';
+    box.appendChild(logoEl({ name: probe.name || '?', logo: probe.logo, url: probe.url, model: probe.model,
+                             where: probe.where, seller: probe.seller, provider: probe.provider,
+                             source: probe.source, account: probe.account }));
+  }
+
+  /** La cuadrícula se pinta la primera vez que se abre: son más de 200 logos. */
+  function toggleLogoPicker(force) {
+    const panel = document.getElementById('logoPicker');
+    const btn = els.itemFields.querySelector('[data-logo-pick]');
+    if (!panel) return;
+    const open = force === undefined ? panel.hidden : force;
+    panel.hidden = !open;
+    if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (!open || panel.childNodes.length) {
+      if (open) panel.querySelector('input').focus();
+      return;
+    }
+
+    const search = el('input', { type: 'search', class: 'search logo-picker__search',
+                                 placeholder: 'Buscar marca…', 'aria-label': 'Buscar marca', autocomplete: 'off' });
+    const grid = el('div', { class: 'logo-picker__grid', role: 'listbox', 'aria-label': 'Logos' });
+    grid.appendChild(el('button', { type: 'button', class: 'logo-choice', 'data-logo-choose': '', title: 'Automático' }, [
+      el('span', { class: 'logo logo--auto', 'aria-hidden': 'true', text: 'Auto' }),
+      el('span', { class: 'logo-choice__name', text: 'Automático' })
+    ]));
+    VD.logos.all().forEach(function (l) {
+      grid.appendChild(el('button', { type: 'button', class: 'logo-choice', 'data-logo-choose': l.title,
+                                      'data-search': U.plain(l.title), title: l.title }, [
+        logoEl({ name: l.title, logo: l.title }),
+        el('span', { class: 'logo-choice__name', text: l.title })
+      ]));
+    });
+    search.addEventListener('input', function () {
+      const q = U.plain(search.value);
+      Array.prototype.forEach.call(grid.children, function (b) {
+        b.hidden = !!q && (b.dataset.search || '').indexOf(q) < 0;
+      });
+    });
+    panel.appendChild(search);
+    panel.appendChild(grid);
+    search.focus();
+  }
+
+  function chooseLogo(title) {
+    const input = els.itemForm.elements.logo;
+    if (input) input.value = title;
+    toggleLogoPicker(false);
+    updateLogoPreview();
   }
 
   /* ── Enlaces del formulario ───────────────────────────────
@@ -827,11 +989,7 @@ VD.ui = (function () {
    * cuenta y app).
    */
   function linkOptions() {
-    const form = els.itemForm.elements;
-    const probe = { name: form.name ? form.name.value : '' };
-    ['logo', 'url', 'model', 'where', 'seller', 'provider', 'account'].forEach(function (k) {
-      if (form[k]) probe[k] = form[k].value;
-    });
+    const probe = formProbe();
     const slug = probe.name ? VD.logos.find(probe) : null;
     const plainName = U.plain(probe.name);
     const self = formId ? linkKey(formKind, formId) : null;
@@ -903,23 +1061,37 @@ VD.ui = (function () {
     return !!formKind && snapshot() !== formSnapshot;
   }
 
-  function openForm(kindId, item) {
+  /**
+   * Abre el formulario: nuevo (sin item), para editar (item) o para
+   * duplicar (item + { copy: true }): un elemento nuevo con todo lo del
+   * original, enlaces incluidos, y "(copia)" en el nombre.
+   */
+  function openForm(kindId, item, opts) {
     const kind = U.kindById(kindId);
+    const copy = !!(item && opts && opts.copy);
+    const editing = !!item && !copy;
     formKind = kindId;
-    formId = item ? item.id : null;
+    formId = editing ? item.id : null;
     formLinks = item ? S.getLinked(kindId, item.id).map(function (l) { return linkKey(l.kind, l.item.id); }) : [];
 
-    els.itemTitle.textContent = (item ? kind.edit : kind.add) + (item && item.archived ? ' (archivado)' : '');
-    els.btnItemDelete.hidden = !item;
-    els.btnItemArchive.hidden = !item;
-    els.btnItemArchive.textContent = item && item.archived ? 'Desarchivar' : 'Archivar';
+    els.itemTitle.textContent = copy ? kind.add + ' (copia)'
+      : (editing ? kind.edit : kind.add) + (editing && item.archived ? ' (archivado)' : '');
+    els.btnItemDelete.hidden = !editing;
+    els.btnItemArchive.hidden = !editing;
+    els.btnItemDuplicate.hidden = !editing;
+    els.btnItemArchive.textContent = editing && item.archived ? 'Desarchivar' : 'Archivar';
     els.itemError.hidden = true;
     els.itemFields.textContent = '';
     kind.fields.forEach(function (f) {
-      els.itemFields.appendChild(f.type === 'links' ? linkField(f) : fieldNode(f, item ? item[f.key] : undefined));
+      let value = item ? item[f.key] : undefined;
+      if (copy && f.key === 'name') value = String(value).slice(0, 72) + ' (copia)';
+      els.itemFields.appendChild(f.type === 'links' ? linkField(f) : fieldNode(f, value));
     });
     renderLinks();
-    formSnapshot = snapshot();
+    updateLogoPreview();
+    // Una copia nace "con cambios": cerrarla sin guardar debe avisar igual
+    // que un formulario tocado.
+    formSnapshot = copy ? '' : snapshot();
 
     // Puede estar ya abierto: al saltar a un elemento enlazado se reutiliza.
     if (!els.itemModal.open) {
@@ -927,9 +1099,12 @@ VD.ui = (function () {
       else els.itemModal.setAttribute('open', '');
     }
     els.itemFields.scrollTop = 0;
-    // Al crear, directo al nombre. Al editar no: en el móvil sacaría el
-    // teclado encima de lo que quieres leer.
-    if (!item) els.itemForm.elements.name.focus();
+    // Al crear o duplicar, directo al nombre. Al editar no: en el móvil
+    // sacaría el teclado encima de lo que quieres leer.
+    if (!editing) {
+      els.itemForm.elements.name.focus();
+      if (copy) els.itemForm.elements.name.select();
+    }
   }
 
   function closeForm() {
@@ -1030,6 +1205,154 @@ VD.ui = (function () {
       els.backupStatus.textContent = 'Última copia: ' + U.formatDate(s.lastExport) +
         ' (' + relative(today, s.lastExport) + ').';
     }
+
+    // Colores de acento: una muestra por color, con el del tema actual.
+    els.setAccent.textContent = '';
+    U.ACCENTS.forEach(function (a) {
+      const on = a.id === s.accent;
+      els.setAccent.appendChild(el('button', {
+        type: 'button', class: 'swatch', role: 'radio', 'aria-checked': on ? 'true' : 'false',
+        'aria-label': a.name, title: a.name, 'data-accent': a.id,
+        '--swatch': (s.theme === 'light' ? a.light : a.dark)[0]
+      }));
+    });
+
+    renderLayout(els.layoutSections, 'homeSections', U.KINDS.map(function (k) { return { id: k.id, name: k.icon + ' ' + k.name }; }));
+    renderLayout(els.layoutCards, 'homeCards', U.HOME_CARDS);
+
+    // Contraseña
+    const enc = S.isEncrypted();
+    if (!S.cryptoAvailable()) {
+      els.pwStatus.textContent = 'Este navegador no puede cifrar (hace falta abrir la app desde https o con doble clic en Chrome o Edge).';
+    } else {
+      els.pwStatus.textContent = enc
+        ? '🔒 Tus datos se guardan cifrados. Al abrir la app se pide la contraseña, y las copias que exportes también van cifradas.'
+        : 'Sin contraseña: cualquiera que abra este navegador puede ver tus datos. Con contraseña se guardan cifrados (AES-256).';
+    }
+    els.btnPwSet.hidden = enc || !S.cryptoAvailable();
+    els.btnPwChange.hidden = !enc;
+    els.btnPwRemove.hidden = !enc;
+  }
+
+  /** Una lista de Ajustes → Resumen: nombre, Mostrar y ↑ ↓. */
+  function renderLayout(listEl, list, catalog) {
+    const layout = S.getSettings()[list];
+    listEl.textContent = '';
+    layout.order.forEach(function (id, i) {
+      const item = U.byId(catalog, id);
+      if (!item) return;
+      const shown = layout.hidden.indexOf(id) < 0;
+      const key = list + ':' + id;
+      listEl.appendChild(el('li', { class: 'layout__row' + (shown ? '' : ' layout__row--off') }, [
+        el('label', { class: 'layout__name' }, [
+          el('input', { type: 'checkbox', 'data-layout-toggle': key, checked: shown }),
+          el('span', { text: item.name })
+        ]),
+        el('button', { type: 'button', class: 'icon-btn layout__move', 'data-layout-move': key + ':-1',
+                       'aria-label': 'Subir ' + item.name, disabled: i === 0, text: '↑' }),
+        el('button', { type: 'button', class: 'icon-btn layout__move', 'data-layout-move': key + ':1',
+                       'aria-label': 'Bajar ' + item.name, disabled: i === layout.order.length - 1, text: '↓' })
+      ]));
+    });
+  }
+
+  /* ── Contraseña ───────────────────────────────────────────
+     Un diálogo para cuatro casos. Cada modo dice qué campos enseña y qué
+     pone en los textos; app.js comprueba y guarda. ─────────── */
+
+  const PW_MODES = {
+    set: { title: 'Poner contraseña', submit: 'Cifrar mis datos', current: false, fresh: true,
+           intro: 'Tus datos se guardarán cifrados y la app pedirá esta contraseña al abrirse. ' +
+                  'Si la olvidas, NO hay forma de recuperarlos: apúntala en tu gestor de contraseñas.' },
+    change: { title: 'Cambiar contraseña', submit: 'Cambiar', current: true, fresh: true,
+              intro: 'Escribe la actual y la nueva. Las copias que exportaste antes siguen abriéndose con la contraseña de entonces.' },
+    remove: { title: 'Quitar contraseña', submit: 'Quitar y guardar sin cifrar', current: true, fresh: false,
+              intro: 'Tus datos volverán a guardarse sin cifrar en este navegador.' },
+    backup: { title: 'Copia cifrada', submit: 'Abrir copia', current: true, fresh: false, currentLabel: 'Contraseña de la copia',
+              intro: 'Esta copia está cifrada. Escribe la contraseña que tenía la app cuando la exportaste.' }
+  };
+
+  let pwMode = null;
+
+  function openPassword(mode) {
+    const m = PW_MODES[mode];
+    pwMode = mode;
+    els.pwTitle.textContent = m.title;
+    els.pwIntro.textContent = m.intro;
+    els.btnPwSubmit.textContent = m.submit;
+    els.pwCurrentLabel.textContent = m.currentLabel || 'Contraseña actual';
+    els.pwCurrentField.hidden = !m.current;
+    els.pwNewField.hidden = !m.fresh;
+    els.pwRepeatField.hidden = !m.fresh;
+    els.pwCurrent.value = '';
+    els.pwNew.value = '';
+    els.pwRepeat.value = '';
+    passwordError('');
+    passwordBusy(false);
+    if (!els.pwModal.open) {
+      if (typeof els.pwModal.showModal === 'function') els.pwModal.showModal();
+      else els.pwModal.setAttribute('open', '');
+    }
+    (m.current ? els.pwCurrent : els.pwNew).focus();
+  }
+
+  function closePassword() {
+    // Las contraseñas no se quedan en el DOM al cerrar.
+    els.pwCurrent.value = '';
+    els.pwNew.value = '';
+    els.pwRepeat.value = '';
+    pwMode = null;
+    if (!els.pwModal.open) return;
+    if (typeof els.pwModal.close === 'function') els.pwModal.close();
+    else els.pwModal.removeAttribute('open');
+  }
+
+  function passwordForm() {
+    return { mode: pwMode, current: els.pwCurrent.value, fresh: els.pwNew.value, repeat: els.pwRepeat.value };
+  }
+
+  function passwordError(text) {
+    els.pwError.textContent = text;
+    els.pwError.hidden = !text;
+  }
+
+  /** Derivar la clave tarda un segundo: el botón lo dice para que no se pulse dos veces. */
+  function passwordBusy(busy) {
+    els.btnPwSubmit.disabled = busy;
+    if (busy) els.btnPwSubmit.textContent = 'Un momento…';
+    else if (pwMode) els.btnPwSubmit.textContent = PW_MODES[pwMode].submit;
+  }
+
+  /* ── Candado ──────────────────────────────────────────────── */
+
+  function showLock(message) {
+    els.lockScreen.hidden = false;
+    els.lockInput.value = '';
+    lockMessage(message || '');
+    lockBusy(false);
+    els.lockInput.focus();
+  }
+
+  function hideLock() {
+    els.lockInput.value = '';
+    els.lockScreen.hidden = true;
+  }
+
+  function lockMessage(text) {
+    els.lockError.textContent = text;
+    els.lockError.hidden = !text;
+    if (text) {
+      // Un temblor corto: se ve que algo falló sin tener que leer.
+      els.lockForm.classList.remove('lock__box--shake');
+      void els.lockForm.offsetWidth;
+      els.lockForm.classList.add('lock__box--shake');
+    }
+  }
+
+  function lockBusy(busy) {
+    els.lockSubmit.disabled = busy;
+    els.lockInput.disabled = busy;
+    els.lockSubmit.textContent = busy ? 'Abriendo…' : 'Abrir';
   }
 
   /* ── Versión, espacio y protección ────────────────────────
@@ -1186,6 +1509,10 @@ VD.ui = (function () {
     renderBuildInfo: renderBuildInfo, renderPersist: renderPersist,
     openForm: openForm, closeForm: closeForm, readForm: readForm, formState: formState, formDirty: formDirty,
     renderGlobal: renderGlobal, setTagFilter: setTagFilter, toggleArchived: toggleArchived,
+    toggleFabMenu: toggleFabMenu, fabTarget: fabTarget,
+    openPassword: openPassword, closePassword: closePassword, passwordForm: passwordForm,
+    passwordError: passwordError, passwordBusy: passwordBusy,
+    showLock: showLock, hideLock: hideLock, lockMessage: lockMessage, lockBusy: lockBusy,
     openImport: openImport, closeImport: closeImport, importResult: importResult,
     toast: toast
   };

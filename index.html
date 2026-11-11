@@ -2,7 +2,7 @@
 <!-- data-build tiene que coincidir con VERSION en js/utils.js y con CACHE en
      sw.js. Si el navegador sirve un index.html de una versión y unos .js de
      otra, la app lo detecta y avisa en vez de quedarse sin responder. -->
-<html lang="es" data-theme="dark" data-build="2.2.0">
+<html lang="es" data-theme="dark" data-build="2.3.0">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -71,7 +71,9 @@
         <!-- El menú: un recuadro por sección, con lo más importante de cada una. -->
         <nav class="tiles" id="homeTiles" aria-label="Secciones"></nav>
 
-        <div class="home-grid">
+        <!-- El orden y lo que se ve de estas tarjetas se elige en Ajustes →
+             Resumen; ui.js las recoloca dentro de homeGrid. -->
+        <div class="home-grid" id="homeGrid">
           <!-- Las dos de cambio de equipo solo aparecen si hay apps o
                programas apuntados: mientras dura el cambio, es lo primero
                que se quiere ver. -->
@@ -101,20 +103,20 @@
             </div>
           </article>
 
-          <article class="card spend">
+          <article class="card spend" id="spendCard">
             <h2 class="card__title">Gasto</h2>
             <p class="spend__big"><span id="spendMonth">0 €</span><span class="spend__unit"> al mes</span></p>
             <p class="spend__sub" id="spendYear">—</p>
             <ul class="bars" id="spendCats"></ul>
           </article>
 
-          <article class="card">
+          <article class="card" id="upcomingCard">
             <h2 class="card__title">Próximos 30 días</h2>
             <ul class="events" id="homeUpcoming"></ul>
             <p class="card__empty" id="homeUpcomingEmpty">Nada a la vista: ni cobros, ni caducidades, ni garantías.</p>
           </article>
 
-          <article class="card">
+          <article class="card" id="securityCard">
             <h2 class="card__title">Seguridad</h2>
             <p class="security__line" id="securityLine">—</p>
             <ul class="events" id="securityList"></ul>
@@ -313,6 +315,31 @@
               <option value="light">Claro</option>
             </select>
           </label>
+          <div class="row row--stack">
+            <span id="accentLabel">Color</span>
+            <!-- Las muestras salen de VD.utils.ACCENTS. -->
+            <div class="swatches" id="setAccent" role="radiogroup" aria-labelledby="accentLabel"></div>
+          </div>
+        </div>
+
+        <div class="card settings">
+          <h2 class="card__title">Resumen</h2>
+          <p class="settings__note">Ordena con ↑ ↓ y desmarca lo que no quieras ver. Una sección oculta
+            sigue existiendo: se encuentra con el buscador.</p>
+          <h3 class="settings__sub">Secciones del menú</h3>
+          <ul class="layout" id="layoutSections"></ul>
+          <h3 class="settings__sub">Tarjetas</h3>
+          <ul class="layout" id="layoutCards"></ul>
+        </div>
+
+        <div class="card settings">
+          <h2 class="card__title">Contraseña</h2>
+          <p class="settings__note" id="pwStatus">—</p>
+          <div class="btn-row">
+            <button type="button" class="btn btn--primary" id="btnPwSet">Poner contraseña</button>
+            <button type="button" class="btn" id="btnPwChange">Cambiar contraseña</button>
+            <button type="button" class="btn btn--ghost-danger" id="btnPwRemove">Quitar contraseña</button>
+          </div>
         </div>
 
         <div class="card settings">
@@ -328,7 +355,10 @@
             </select>
           </label>
           <div class="btn-row">
-            <button type="button" class="btn btn--primary" id="btnExportJson">Exportar copia</button>
+            <!-- En el móvil abre el menú Compartir (Drive, OneDrive, un chat…);
+                 donde no se puede compartir un archivo, lo descarga. -->
+            <button type="button" class="btn btn--primary" id="btnShareJson">Guardar copia en Drive…</button>
+            <button type="button" class="btn" id="btnExportJson">Descargar copia</button>
             <button type="button" class="btn" id="btnImport">Importar copia</button>
             <button type="button" class="btn" id="btnExportCsv">Exportar a Excel (CSV)</button>
             <button type="button" class="btn" data-import-excel>Importar desde Excel</button>
@@ -386,8 +416,13 @@
       <div class="modal__body" id="itemFields"></div>
       <p class="form-error" id="itemError" role="alert" hidden></p>
       <footer class="modal__foot">
-        <button type="button" class="btn btn--ghost-danger" id="btnItemDelete">Borrar</button>
-        <button type="button" class="btn btn--ghost" id="btnItemArchive">Archivar</button>
+        <!-- En el móvil, estas tres van en su propia fila (no caben con
+             Cancelar y Guardar al lado). -->
+        <div class="modal__extra">
+          <button type="button" class="btn btn--ghost-danger" id="btnItemDelete">Borrar</button>
+          <button type="button" class="btn btn--ghost" id="btnItemArchive">Archivar</button>
+          <button type="button" class="btn btn--ghost" id="btnItemDuplicate">Duplicar</button>
+        </div>
         <span class="spacer"></span>
         <button type="button" class="btn" id="btnItemCancel">Cancelar</button>
         <button type="submit" class="btn btn--primary">Guardar</button>
@@ -432,6 +467,62 @@
       </footer>
     </form>
   </dialog>
+
+  <!-- ══ CONTRASEÑA ══
+       Uno para poner, cambiar y quitar la contraseña y para abrir una copia
+       cifrada al importarla: ui.openPassword(modo) enseña los campos de cada caso. -->
+  <dialog class="modal modal--small" id="pwModal" aria-labelledby="pwTitle">
+    <form class="modal__form" id="pwForm" novalidate>
+      <header class="modal__head">
+        <h2 class="modal__title" id="pwTitle">—</h2>
+        <button type="button" class="icon-btn" id="btnPwClose" aria-label="Cerrar">✕</button>
+      </header>
+      <div class="modal__body modal__body--single">
+        <p class="settings__note" id="pwIntro">—</p>
+        <div class="field" id="pwCurrentField">
+          <label class="field__label" for="pwCurrent" id="pwCurrentLabel">Contraseña actual</label>
+          <input type="password" id="pwCurrent" autocomplete="current-password">
+        </div>
+        <div class="field" id="pwNewField">
+          <label class="field__label" for="pwNew">Contraseña nueva</label>
+          <input type="password" id="pwNew" autocomplete="new-password" minlength="8">
+          <p class="field__hint">Al menos 8 caracteres. Mejor una frase que una palabra.</p>
+        </div>
+        <div class="field" id="pwRepeatField">
+          <label class="field__label" for="pwRepeat">Repítela</label>
+          <input type="password" id="pwRepeat" autocomplete="new-password">
+        </div>
+        <p class="form-error" id="pwError" role="alert" hidden></p>
+      </div>
+      <footer class="modal__foot">
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="btnPwCancel">Cancelar</button>
+        <button type="submit" class="btn btn--primary" id="btnPwSubmit">Guardar</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- ══ CANDADO ══
+       Con contraseña, la app arranca aquí: no hay datos que pintar hasta
+       que se descifran. -->
+  <div class="lock" id="lockScreen" hidden>
+    <form class="lock__box" id="lockForm" novalidate>
+      <img class="lock__icon" src="icon.svg" alt="" width="64" height="64">
+      <h1 class="lock__title">Vida digital</h1>
+      <p class="lock__text">Tus datos están cifrados. Escribe la contraseña para abrirlos.</p>
+      <input type="password" class="lock__input" id="lockInput" autocomplete="current-password"
+             aria-label="Contraseña" placeholder="Contraseña">
+      <p class="form-error" id="lockError" role="alert" hidden></p>
+      <button type="submit" class="btn btn--primary lock__btn" id="lockSubmit">Abrir</button>
+      <button type="button" class="link-btn lock__forgot" id="btnLockForgot">He olvidado la contraseña</button>
+    </form>
+  </div>
+
+  <!-- ══ BOTÓN + FLOTANTE ══
+       En una sección añade a esa sección; en el Resumen abre fabMenu para
+       elegir dónde. En Ajustes no sale. -->
+  <div class="fab-menu" id="fabMenu" hidden></div>
+  <button type="button" class="fab" id="fab" aria-label="Añadir" aria-expanded="false" title="Añadir">+</button>
 
   <div class="toast-stack" id="toastStack" aria-live="polite"></div>
 

@@ -6,7 +6,7 @@
 /* Este número tiene que coincidir con VERSION en js/utils.js y con
    data-build en index.html. Cambiarlo es lo que obliga al móvil a
    descargar la versión nueva. */
-const CACHE = 'vida-digital-v2.3.0';
+const CACHE = 'vida-digital-v2.3.1';
 /* Todas las apps de alexlobar.github.io comparten el almacén de cachés:
    al actualizar, solo se borran las de esta app (las que empiezan así). */
 const PREFIX = 'vida-digital-v';

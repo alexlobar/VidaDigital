@@ -2,7 +2,7 @@
 <!-- data-build tiene que coincidir con VERSION en js/utils.js y con CACHE en
      sw.js. Si el navegador sirve un index.html de una versión y unos .js de
      otra, la app lo detecta y avisa en vez de quedarse sin responder. -->
-<html lang="es" data-theme="dark" data-build="2.3.0">
+<html lang="es" data-theme="dark" data-build="2.3.1">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -355,8 +355,8 @@
             </select>
           </label>
           <div class="btn-row">
-            <!-- En el móvil abre el menú Compartir (Drive, OneDrive, un chat…);
-                 donde no se puede compartir un archivo, lo descarga. -->
+            <!-- Solo en pantallas táctiles (ui.renderSettings lo oculta en el
+                 ordenador): abre el menú Compartir con la copia como .txt. -->
             <button type="button" class="btn btn--primary" id="btnShareJson">Guardar copia en Drive…</button>
             <button type="button" class="btn" id="btnExportJson">Descargar copia</button>
             <button type="button" class="btn" id="btnImport">Importar copia</button>

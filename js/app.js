@@ -217,56 +217,79 @@ VD.app = (function () {
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
   }
 
-  /** Con contraseña, la copia sale cifrada igual que lo guardado. */
-  function exportJson() {
-    S.exportText().then(function (text) {
-      download('vida-digital-' + today + '.json', text, 'application/json');
-      S.markExported();
-      UI.toast(S.isEncrypted() ? 'Copia cifrada descargada.' : 'Copia descargada.', { type: 'success', icon: '↓' });
-    });
-  }
-
-  /* ── Guardar en Drive (compartir) ─────────────────────────
-     El menú Compartir del sistema: en el móvil deja elegir Drive,
-     OneDrive, un correo o un chat contigo mismo, y la copia no se queda
-     olvidada en Descargas. Chrome no deja compartir cualquier tipo de
-     archivo: si un .json no vale, se prueba como texto (.json.txt, que
-     Importar copia también acepta). Si el navegador no comparte archivos,
-     se descarga. ─────────────────────────────────────────── */
-
-  function shareableFile(text) {
-    const name = 'vida-digital-' + today + '.json';
-    const candidates = [
-      new File([text], name, { type: 'application/json' }),
-      new File([text], name + '.txt', { type: 'text/plain' })
-    ];
-    if (!navigator.canShare) return null;
-    for (let i = 0; i < candidates.length; i++) {
-      try { if (navigator.canShare({ files: [candidates[i]] })) return candidates[i]; } catch (e) { /* tipo no admitido */ }
-    }
+  /**
+   * La copia de ahora mismo, o null si aún se está cifrando el último
+   * cambio (entonces se avisa y se fuerza el guardado para el siguiente toque).
+   */
+  function backupText() {
+    const copy = S.exportNow();
+    if (copy.fresh) return copy.text;
+    S.save(true);
+    UI.toast('Guardando el último cambio… vuelve a pulsar en un segundo.', { icon: '⏳' });
     return null;
   }
 
+  function backupName() {
+    return 'vida-digital-' + today;      // fecha local, no toISOString (UTC)
+  }
+
+  /** Con contraseña, la copia sale cifrada igual que lo guardado. */
+  function exportJson() {
+    const text = backupText();
+    if (text === null) return;
+    download(backupName() + '.json', text, 'application/json');
+    S.markExported();
+    UI.toast(S.isEncrypted() ? 'Copia cifrada descargada.' : 'Copia descargada.', { type: 'success', icon: '↓' });
+  }
+
+  /* ── Guardar en Drive (compartir) ─────────────────────────
+     Las reglas, o no funciona:
+     · Se llama directamente desde el toque del botón, sin esperas: si antes
+       hay una promesa (cifrar, leer…), Chrome lo bloquea con NotAllowedError.
+       Por eso la copia sale de store.exportNow(), que ya está hecha.
+     · Solo el archivo, sin title ni text: con texto, Drive se queda con el
+       texto y tira el archivo.
+     · Siempre .txt: Chrome en Android no deja compartir .json, y aunque
+       canShare diga que sí, share falla después. Importar acepta los dos.
+     · Solo en pantallas táctiles: en Windows el menú de compartir no ofrece
+       Drive, así que en el ordenador se descarga.
+     · Cancelar el menú da AbortError: no es un fallo, no se avisa. Con
+       cualquier otro error se descarga el .json.
+     ─────────────────────────────────────────────────────── */
+
+  function canShareFiles() {
+    const touch = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+    return touch && !!navigator.share && !!navigator.canShare && typeof File === 'function';
+  }
+
   function shareBackup() {
-    S.exportText().then(function (text) {
-      const file = shareableFile(text);
-      if (!file) {
-        download('vida-digital-' + today + '.json', text, 'application/json');
-        S.markExported();
-        UI.toast('Este navegador no deja compartir archivos: la copia se ha descargado.', { icon: '↓', duration: 6000 });
+    const text = backupText();
+    if (text === null) return;
+
+    if (canShareFiles()) {
+      const file = new File([text], backupName() + '.txt', { type: 'text/plain' });
+      let ok = false;
+      try { ok = navigator.canShare({ files: [file] }); } catch (e) { ok = false; }
+
+      if (ok) {
+        navigator.share({ files: [file] })
+          .then(function () {
+            S.markExported();
+            UI.toast('Copia enviada.', { type: 'success', icon: '☁️' });
+          })
+          .catch(function (err) {
+            if (err && err.name === 'AbortError') return;      // cerraste el menú
+            download(backupName() + '.json', text, 'application/json');
+            S.markExported();
+            UI.toast('No se pudo compartir: la copia se ha descargado.', { icon: '↓', duration: 6000 });
+          });
         return;
       }
-      navigator.share({ files: [file], title: 'Copia de Vida digital' })
-        .then(function () {
-          S.markExported();
-          UI.toast('Copia enviada.', { type: 'success', icon: '☁️' });
-        })
-        .catch(function (err) {
-          if (err && err.name === 'AbortError') return;      // lo cerraste sin elegir
-          UI.toast('No se pudo compartir: ' + (err && err.message || 'error') + '. Prueba Descargar copia.',
-                   { type: 'error', icon: '⚠️' });
-        });
-    });
+    }
+
+    download(backupName() + '.json', text, 'application/json');
+    S.markExported();
+    UI.toast(S.isEncrypted() ? 'Copia cifrada descargada.' : 'Copia descargada.', { type: 'success', icon: '↓' });
   }
 
   function csvCell(value) {

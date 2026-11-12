@@ -2,10 +2,11 @@
 
 Tus suscripciones, cuentas, apps, dispositivos, licencias, copias de seguridad y webs en un solo sitio, enlazados entre sí, con el gasto total, lo que vence en los próximos 30 días, qué cuentas no tienen verificación en dos pasos, qué copias tocan y cómo va el cambio de móvil. HTML, CSS y JavaScript vanilla: sin dependencias, sin build, offline, con los datos en `localStorage`.
 
-**Versión documentada: 2.3.0** (11-11-2026) · esquema de datos **1**.
+**Versión documentada: 2.3.1** (12-11-2026) · esquema de datos **1**.
 
 | Versión | Cambios |
 |---|---|
+| 2.3.1 | **Guardar copia en Drive** rehecho con las reglas de Chrome Android: se comparte en el mismo toque (la copia, también la cifrada, ya está hecha), solo el archivo, siempre `.txt`; solo en pantallas táctiles, en el ordenador se descarga |
 | 2.3.0 | **Contraseña** (datos y copias cifrados con AES-256). **Guardar copia en Drive** con el menú Compartir. **Duplicar**. **Selector visual de logos** con vista previa. **Resumen a tu gusto** (ordenar y ocultar tarjetas y secciones). **Botón + flotante**. **Color de acento** |
 | 2.2.0 | **Buscador global** en el Resumen. Sección **Programas** con su tarjeta *Cambio de ordenador*. **Etiquetas** libres con filtro en cada lista. **Archivar**. **Importar desde Excel** (pegar celdas o CSV) con plantilla |
 | 2.1.0 | Secciones **Licencias y claves** y **Copias de seguridad** (con «Hecha hoy» y tarjeta en el Resumen). **Enlaces** entre elementos de cualquier sección, con sugerencias |
@@ -66,7 +67,7 @@ Orden de carga = orden de dependencia: `utils → logos → store → calc → s
 
 **Contraseña** (Ajustes → Contraseña). *Poner contraseña* (mínimo 8 caracteres, dos veces) cifra los datos guardados y, desde entonces, la app arranca en una pantalla de candado que la pide. *Cambiar* y *Quitar* piden la actual. Las copias que se descargan o comparten también salen cifradas; al importarlas se pide la contraseña que tenía la app al exportarlas. *He olvidado la contraseña* (en el candado) empieza de cero y guarda el sobre cifrado aparte por si la recuerdas. El CSV de *Exportar a Excel* no va cifrado.
 
-**Guardar copia en Drive.** Abre el menú *Compartir* del sistema con la copia: en el móvil, Drive, OneDrive, un correo o un chat contigo mismo. Si el navegador no comparte archivos, la descarga. El aviso de copia pendiente usa este mismo botón.
+**Guardar copia en Drive** (solo en el móvil y otras pantallas táctiles). Abre el menú *Compartir* del sistema con la copia como `vida-digital-AAAA-MM-DD.txt`: Drive, OneDrive, un correo o un chat contigo mismo. Cerrar el menú no es un error y no avisa; cualquier otro fallo descarga la copia como `.json`. En el ordenador el botón no sale: el menú de compartir de Windows no ofrece Drive, así que *Descargar copia* pasa a ser el principal. El aviso de copia pendiente usa la misma lógica. *Importar copia* acepta `.json` y `.txt`.
 
 **Duplicar** (en el formulario). Abre un elemento nuevo con todo lo del original, enlaces y etiquetas incluidos, y «(copia)» en el nombre. No se guarda hasta pulsar Guardar.
 
@@ -100,9 +101,9 @@ Cada lista se agrupa por categoría en el orden del catálogo, y a partir de 6 e
 
 | Dónde | Qué |
 |---|---|
-| `js/utils.js` | `VERSION = '2.3.0'` y `BUILD_DATE` — la fuente de verdad |
-| `sw.js` | `CACHE = 'vida-digital-v2.3.0'` |
-| `index.html` | `<html data-build="2.3.0">` |
+| `js/utils.js` | `VERSION = '2.3.1'` y `BUILD_DATE` — la fuente de verdad |
+| `sw.js` | `CACHE = 'vida-digital-v2.3.1'` |
+| `index.html` | `<html data-build="2.3.1">` |
 
 Si no coinciden, la app avisa al arrancar de que el navegador ha mezclado versiones.
 
@@ -188,7 +189,12 @@ Todo lo que se carga o se importa pasa por `cleanState()` en `store.js`, que rec
 - **Cómo se cifra** (`store.js`). La clave sale de la contraseña con PBKDF2-SHA-256, 600 000 vueltas (lo que recomienda OWASP) y una sal aleatoria de 16 bytes; se cifra con AES-GCM de 256 bits y un IV nuevo en cada guardado. GCM detecta cualquier cambio: una contraseña mala o un archivo manipulado dan error, nunca datos a medias. La contraseña no se guarda; en memoria solo vive la clave derivada, no extraíble. Todo con la Web Crypto del navegador, sin librerías. Derivar la clave tarda medio segundo o un segundo: es a propósito, para que probar contraseñas a ciegas sea lento.
 - **Con cifrado, guardar es asíncrono.** Las escrituras se encadenan para que una vieja no pise a una nueva, y además de en `pagehide` se guarda al pasar a segundo plano (`visibilitychange`), que en el móvil llega antes y da tiempo a cifrar.
 - **Olvidar la contraseña = perder los datos.** Es la condición de que el cifrado sirva para algo. *He olvidado la contraseña* no descifra nada: empieza de cero y guarda el sobre cifrado en `vidaDigital.corrupt-backup` por si la recuerdas.
-- **Compartir y no solo descargar.** En el móvil, una descarga se queda en *Descargas* y se pierde con el móvil. El menú Compartir (Web Share API) la lleva directamente a Drive. Chrome no deja compartir cualquier tipo: si `.json` no vale, se prueba como `.json.txt`, que *Importar copia* acepta.
+- **Compartir y no solo descargar.** En el móvil, una descarga se queda en *Descargas* y se pierde con el móvil. El menú Compartir (Web Share API) la lleva directamente a Drive. Las reglas, o no funciona (`app.js`, `shareBackup`):
+  - **En el mismo toque, sin esperas.** Si antes hay una promesa, Chrome lo bloquea con `NotAllowedError`. Por eso la copia sale de `store.exportNow()`, que es síncrono: sin contraseña se genera al momento, y con contraseña es el último sobre cifrado que se escribió al guardar. Si el último cambio aún no se ha cifrado (medio segundo), avisa «vuelve a pulsar» en vez de mandar una copia vieja.
+  - **Solo el archivo**, sin `title` ni `text`: con texto, Drive se queda con el texto y tira el archivo.
+  - **Siempre `.txt`.** Chrome en Android no deja compartir `.json`: `canShare` dice que sí y `share` falla después.
+  - **Solo en pantallas táctiles** (`pointer: coarse`); en el ordenador, descarga.
+  - **`AbortError` = cerraste el menú**, no un fallo; cualquier otro error descarga el `.json`.
 - **El acento va en el `style` de `<html>`**, no en el CSS: manda sobre los tokens de los dos temas sin repetir cada color en la hoja de estilos.
 - **La app empieza vacía y tus datos no van en el código.** El repositorio de GitHub Pages es público; meter tus cuentas como datos de partida las publicaría. Se cargan importando un JSON que no se sube.
 - **El próximo cobro no se reescribe.** Se guarda la fecha que pusiste y `calc.nextCharge()` le suma periodos enteros hasta hoy, siempre desde la fecha original: un cobro el día 31 pasa por el 28 de febrero y vuelve al 31 en marzo.

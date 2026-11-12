@@ -208,6 +208,12 @@ VD.store = (function () {
   let verifier = null;       // un sobre pequeño para comprobar la contraseña
   let lockedEnvelope = null; // el sobre leído al arrancar, hasta desbloquear
   let writeChain = Promise.resolve();
+  /* El último sobre escrito, listo para compartir. Compartir tiene que
+     llamarse en el mismo toque del botón, sin esperas: si antes hubiera que
+     cifrar (asíncrono), el navegador lo bloquearía con NotAllowedError.
+     Como cada cambio ya se cifra al guardarse, la copia está siempre hecha. */
+  let sealedText = null;
+  let sealsPending = 0;      // cifrados en marcha
 
   function toB64(bytes) {
     let s = '';
@@ -284,6 +290,8 @@ VD.store = (function () {
         const incoming = Math.floor(Number(res.obj && res.obj.version)) || 1;
         state = cleanState(res.obj);
         migrate(incoming);
+        // Lo guardado es justo lo que se acaba de abrir: ya es la copia.
+        sealedText = JSON.stringify(lockedEnvelope);
         lockedEnvelope = null;
         lastError = null;
         return true;
@@ -310,6 +318,7 @@ VD.store = (function () {
     cryptoKey = null;
     cryptoSalt = null;
     verifier = null;
+    sealedText = null;
     return Promise.resolve(save(true));
   }
 
@@ -323,15 +332,22 @@ VD.store = (function () {
     cryptoKey = null;
     cryptoSalt = null;
     verifier = null;
+    sealedText = null;
     lastError = null;
     state = defaultState();
     save(true);
   }
 
-  /** El texto de una copia exportada: cifrada si hay contraseña. */
-  function exportText() {
-    if (!cryptoKey) return Promise.resolve(JSON.stringify(state, null, 2));
-    return seal(state, cryptoKey, cryptoSalt).then(function (env) { return JSON.stringify(env); });
+  /**
+   * El texto de la copia, al momento (sin promesas: se llama desde el toque
+   * de un botón que va a compartir). Cifrada si hay contraseña.
+   * { text, fresh }: `fresh` es false si hay un cambio aún sin cifrar (el
+   * último medio segundo); entonces `text` es la copia anterior o null.
+   */
+  function exportNow() {
+    if (!state) return { text: null, fresh: false };
+    if (!cryptoKey) return { text: JSON.stringify(state, null, 2), fresh: true };
+    return { text: sealedText, fresh: !!sealedText && !scheduleWrite.pending() && sealsPending === 0 };
   }
 
   /* ── Carga y guardado ─────────────────────────────────────── */
@@ -408,15 +424,22 @@ VD.store = (function () {
     const snapshot = JSON.parse(JSON.stringify(state));
     const key = cryptoKey;
     const salt = cryptoSalt;
+    sealsPending++;
     writeChain = writeChain
       .then(function () { return seal(snapshot, key, salt); })
-      .then(function (env) { return writeText(JSON.stringify(env)); })
+      .then(function (env) {
+        const text = JSON.stringify(env);
+        // Si entretanto se quitó la contraseña, este sobre ya no vale como copia.
+        if (cryptoKey === key) sealedText = text;
+        return writeText(text);
+      })
       .catch(function (err) {
         console.error('No se pudo cifrar:', err);
         lastError = { type: 'write' };
         emit('error', lastError);
         return false;
-      });
+      })
+      .then(function (ok) { sealsPending--; return ok; });
     return writeChain;
   }
 
@@ -712,6 +735,7 @@ VD.store = (function () {
     cryptoKey = null;
     cryptoSalt = null;
     verifier = null;
+    sealedText = null;
     state = defaultState();
     save(true);
     emit('replace');
@@ -721,7 +745,7 @@ VD.store = (function () {
     load: load, save: save, subscribe: subscribe,
     isEncrypted: isEncrypted, isLocked: isLocked, cryptoAvailable: cryptoAvailable, isEnvelope: isEnvelope,
     unlock: unlock, checkPassword: checkPassword, setPassword: setPassword, removePassword: removePassword,
-    forgetAndReset: forgetAndReset, exportText: exportText, openBackup: openWithPassword,
+    forgetAndReset: forgetAndReset, exportNow: exportNow, openBackup: openWithPassword,
     moveLayout: moveLayout, toggleLayout: toggleLayout,
     getState: getState, getSettings: getSettings, getLastError: getLastError,
     getItems: getItems, getItem: getItem, getLinked: getLinked, resolveLink: resolveLink,

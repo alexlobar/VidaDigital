@@ -1206,6 +1206,12 @@ VD.ui = (function () {
         ' (' + relative(today, s.lastExport) + ').';
     }
 
+    // Compartir a Drive solo tiene sentido en pantallas táctiles: en el
+    // ordenador el menú de compartir no ofrece Drive, y se descarga.
+    const touch = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+    els.btnShareJson.hidden = !touch;
+    els.btnExportJson.classList.toggle('btn--primary', !touch);
+
     // Colores de acento: una muestra por color, con el del tema actual.
     els.setAccent.textContent = '';
     U.ACCENTS.forEach(function (a) {

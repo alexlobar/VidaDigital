@@ -15,8 +15,8 @@ VD.utils = (function () {
      Aparece en otros dos sitios: CACHE en sw.js (un service worker no
      puede leer este archivo) y data-build en index.html. Si se
      desincronizan, la app lo avisa al arrancar. ──────────────── */
-  const VERSION = '2.3.0';
-  const BUILD_DATE = '2026-11-11';
+  const VERSION = '2.3.1';
+  const BUILD_DATE = '2026-11-12';
   /* Igual que PREFIX en sw.js. Único en alexlobar.github.io: no puede ser
      el comienzo del prefijo de otra app (ver Service-worker-cache.md). */
   const CACHE_PREFIX = 'vida-digital-v';
@@ -594,9 +594,11 @@ VD.utils = (function () {
       const args = arguments;
       const self = this;
       clearTimeout(t);
-      t = setTimeout(function () { fn.apply(self, args); }, wait);
+      t = setTimeout(function () { t = null; fn.apply(self, args); }, wait);
     }
     wrapped.cancel = function () { clearTimeout(t); t = null; };
+    /** ¿Hay una llamada esperando? (store.exportNow lo usa para saber si la copia está al día). */
+    wrapped.pending = function () { return t !== null; };
     return wrapped;
   }
 

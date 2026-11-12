@@ -21,7 +21,7 @@ VD.store = (function () {
      cuota que comparten todas las apps del dominio. */
   const MAX_LEN = { text: 80, url: 300, textarea: 2000 };
   const MAX_ITEMS = 1000;            // por tipo
-  const MAX_LINKS = 30;              // enlaces por elemento
+  const MAX_LINKS = 200;             // enlaces por elemento (holgado: recortar borraría enlaces)
   const MAX_TAGS = 10;               // etiquetas por elemento
   const MAX_TAG = 24;                // caracteres por etiqueta
   const THEMES = ['dark', 'light'];
@@ -61,7 +61,7 @@ VD.store = (function () {
         // Lista o "trabajo, familia". Sin repetir, sin distinguir
         // mayúsculas: "Trabajo" y "trabajo" son la misma etiqueta.
         const raw = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : [];
-        const seen = {};
+        const seen = Object.create(null);
         return raw.map(function (t) { return typeof t === 'string' ? t.trim().replace(/^#/, '').slice(0, MAX_TAG) : ''; })
           .filter(function (t) {
             const k = U.plain(t);
@@ -74,7 +74,7 @@ VD.store = (function () {
         // "tipo:id", sin repetir. Que el elemento exista se comprueba
         // después, cuando ya están saneadas todas las listas.
         if (!Array.isArray(value)) return [];
-        const seen = {};
+        const seen = Object.create(null);
         return value.filter(function (k) {
           if (typeof k !== 'string' || seen[k]) return false;
           const parts = k.split(':');
@@ -137,7 +137,7 @@ VD.store = (function () {
     };
 
     U.KINDS.forEach(function (kind) {
-      const seen = {};
+      const seen = Object.create(null);
       out[kind.id] = (Array.isArray(src[kind.id]) ? src[kind.id] : [])
         .map(function (r) { return cleanItem(kind, r); })
         .filter(function (it) {
@@ -152,7 +152,7 @@ VD.store = (function () {
 
     // Enlaces a elementos que ya no existen (borrados, o de una copia
     // editada a mano) y enlaces de un elemento consigo mismo: fuera.
-    const exists = {};
+    const exists = Object.create(null);
     U.KINDS.forEach(function (kind) {
       out[kind.id].forEach(function (it) { exists[kind.id + ':' + it.id] = true; });
     });
@@ -239,9 +239,12 @@ VD.store = (function () {
   }
 
   function deriveKey(password, salt, iter) {
-    const enc = new TextEncoder();
-    return crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey'])
-      .then(function (base) {
+    // Dentro de una promesa: sin Web Crypto, `crypto.subtle` no existe y el
+    // error saltaría al momento, fuera de los .catch, dejando el candado en
+    // "Abriendo…" para siempre.
+    return Promise.resolve().then(function () {
+      return crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+    }).then(function (base) {
         return crypto.subtle.deriveKey(
           { name: 'PBKDF2', salt: salt, iterations: iter, hash: 'SHA-256' },
           base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
@@ -305,29 +308,99 @@ VD.store = (function () {
     return openWithPassword(verifier, password).then(function (res) { return !!res; });
   }
 
-  /** Pone o cambia la contraseña y vuelve a guardar todo cifrado con ella. */
+  /** Una escritura que tiene que haber salido bien, o error (cuota llena…). */
+  function mustSave() {
+    return Promise.resolve(save(true)).then(function (ok) {
+      if (!ok) throw new Error('no se pudo guardar (¿espacio lleno?)');
+    });
+  }
+
+  /**
+   * Pone o cambia la contraseña y vuelve a guardar todo cifrado con ella.
+   * Si la escritura falla, se vuelve a la clave anterior: lo guardado sigue
+   * siendo lo de antes, y la memoria tiene que decir lo mismo.
+   */
   function setPassword(password) {
+    const prev = { key: cryptoKey, salt: cryptoSalt, verifier: verifier, sealed: sealedText };
     const salt = crypto.getRandomValues(new Uint8Array(16));
     return deriveKey(password, salt, KDF_ITER)
       .then(function (key) { return remember(key, salt); })
-      .then(function () { return save(true); });
+      .then(mustSave)
+      .catch(function (err) {
+        cryptoKey = prev.key; cryptoSalt = prev.salt; verifier = prev.verifier; sealedText = prev.sealed;
+        throw err;
+      });
   }
 
   /** Quita la contraseña: los datos vuelven a guardarse sin cifrar. */
   function removePassword() {
+    const prev = { key: cryptoKey, salt: cryptoSalt, verifier: verifier, sealed: sealedText };
     cryptoKey = null;
     cryptoSalt = null;
     verifier = null;
     sealedText = null;
-    return Promise.resolve(save(true));
+    return mustSave().catch(function (err) {
+      cryptoKey = prev.key; cryptoSalt = prev.salt; verifier = prev.verifier; sealedText = prev.sealed;
+      throw err;
+    });
+  }
+
+  /* ── Copias de rescate ────────────────────────────────────
+     Lo que no se puede abrir y no se debe perder: el sobre cifrado de
+     "He olvidado la contraseña" (por si la recuerdas) y unos datos que
+     llegaron dañados. Se descargan desde Ajustes como copia normal. ── */
+
+  const RESCUE_KEY = 'vidaDigital.rescue';
+  const MAX_RESCUES = 3;
+
+  function readRescues() {
+    try {
+      const list = JSON.parse(localStorage.getItem(RESCUE_KEY) || '[]');
+      return Array.isArray(list) ? list.filter(function (r) { return r && typeof r.text === 'string'; }) : [];
+    } catch (e) { return []; }
+  }
+
+  /** Guarda uno más (los más viejos se caen a partir de tres). true si cupo. */
+  function addRescue(kind, text) {
+    const list = readRescues();
+    list.unshift({ kind: kind, date: U.todayKey(), text: text });
+    try {
+      localStorage.setItem(RESCUE_KEY, JSON.stringify(list.slice(0, MAX_RESCUES)));
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /** [{ kind: 'locked' | 'corrupt', date, text }], más reciente primero. */
+  function getRescues() {
+    const list = readRescues();
+    // Los datos dañados de versiones anteriores, en su clave de siempre.
+    try {
+      const old = localStorage.getItem(BACKUP_KEY);
+      if (old) list.push({ kind: 'corrupt', date: null, text: old, legacy: true });
+    } catch (e) { /* sin acceso */ }
+    return list;
+  }
+
+  function removeRescue(index) {
+    const list = getRescues();
+    const item = list[index];
+    if (!item) return;
+    try {
+      if (item.legacy) localStorage.removeItem(BACKUP_KEY);
+      else localStorage.setItem(RESCUE_KEY, JSON.stringify(readRescues().filter(function (r, i) { return i !== index; })));
+    } catch (e) { /* sin acceso */ }
+    emit('settings');
   }
 
   /**
    * "He olvidado la contraseña": se empieza de cero, pero el sobre cifrado
-   * se guarda aparte por si un día la recuerdas (se puede importar).
+   * se guarda en las copias de rescate (Ajustes) por si un día la recuerdas.
+   * Si no cabe, no se borra nada: devuelve false y la app lo dice.
    */
   function forgetAndReset() {
-    try { if (lockedEnvelope) localStorage.setItem(BACKUP_KEY, JSON.stringify(lockedEnvelope)); } catch (e) { /* sin espacio */ }
+    if (lockedEnvelope && !addRescue('locked', JSON.stringify(lockedEnvelope))) return false;
     lockedEnvelope = null;
     cryptoKey = null;
     cryptoSalt = null;
@@ -336,6 +409,15 @@ VD.store = (function () {
     lastError = null;
     state = defaultState();
     save(true);
+    return true;
+  }
+
+  /**
+   * Espera a que esté todo escrito (también lo cifrado, que va por detrás).
+   * Antes de recargar la página: si no, el último cambio podría perderse.
+   */
+  function flush() {
+    return Promise.resolve(save(true)).then(function () { return writeChain; });
   }
 
   /**
@@ -387,18 +469,31 @@ VD.store = (function () {
 
       const incoming = Math.floor(Number(parsed && parsed.version)) || 1;
       state = cleanState(parsed);
+
+      // Datos de una versión más nueva de la app (una copia en caché vieja
+      // abriendo datos ya actualizados): el saneado tiraría lo que no
+      // conoce. Se enseñan pero no se guarda nada hasta actualizar.
+      if (incoming > VERSION) {
+        writable = false;
+        lastError = { type: 'newer' };
+        return state;
+      }
+
       migrate(incoming);
       save();
     } catch (err) {
       console.error('Datos corruptos en localStorage:', err);
-      // Se conserva el original por si hay que recuperarlo a mano.
-      try { localStorage.setItem(BACKUP_KEY, raw); } catch (e) { /* sin espacio: se pierde */ }
+      // Se conserva el original en las copias de rescate (Ajustes).
+      addRescue('corrupt', raw);
       lastError = { type: 'corrupt' };
       state = defaultState();
       save();
     }
     return state;
   }
+
+  /** Esquema de datos de esta versión: app.js rechaza copias más nuevas. */
+  function schemaVersion() { return VERSION; }
 
   function writeText(text) {
     try {
@@ -419,7 +514,15 @@ VD.store = (function () {
    */
   function writeNow() {
     if (!writable || !state) return false;     // bloqueada: no hay nada que guardar
-    if (!cryptoKey) return writeText(JSON.stringify(state));
+    if (stale) return false;                   // otra ventana guardó después: no pisarla
+    if (!cryptoKey) {
+      // Sin cifrar es al momento, salvo que haya un cifrado en marcha: ese
+      // terminaría después y pisaría esta escritura más nueva.
+      const text = JSON.stringify(state);
+      if (!sealsPending) return writeText(text);
+      writeChain = writeChain.then(function () { return writeText(text); });
+      return writeChain;
+    }
 
     const snapshot = JSON.parse(JSON.stringify(state));
     const key = cryptoKey;
@@ -462,6 +565,25 @@ VD.store = (function () {
     if (document.visibilityState === 'hidden') save(true);
   });
 
+  /* ── Otra ventana ─────────────────────────────────────────
+     La app instalada y una pestaña de Chrome comparten el mismo
+     localStorage. Si la otra guarda, lo que hay en memoria aquí es viejo:
+     guardarlo borraría lo de la otra. Desde ese momento no se escribe nada
+     y app.js pide recargar. El evento `storage` solo llega a las OTRAS
+     ventanas, nunca a la que escribió. ─────────────────────── */
+
+  let stale = false;
+
+  window.addEventListener('storage', function (e) {
+    if (e.key !== KEY && e.key !== null) return;     // null = localStorage.clear()
+    if (stale) return;
+    scheduleWrite.cancel();
+    stale = true;
+    emit('external');
+  });
+
+  function isStale() { return stale; }
+
   /* Tope de localStorage por origen en Chrome, Firefox y Safari: 5 MiB,
      contados en caracteres. El origen es alexlobar.github.io entero, así
      que se reparte con las demás apps publicadas ahí. */
@@ -481,7 +603,7 @@ VD.store = (function () {
         const k = localStorage.key(i);
         if (k === KEY) continue;
         const size = k.length + (localStorage.getItem(k) || '').length;
-        if (k === BACKUP_KEY) mine += size;
+        if (k === BACKUP_KEY || k === RESCUE_KEY) mine += size;
         else others += size;
       }
     } catch (e) { /* sin acceso al almacenamiento: solo cuenta el estado */ }
@@ -568,6 +690,10 @@ VD.store = (function () {
     const prev = index >= 0 ? list[index] : null;
     if (!prev && list.length >= MAX_ITEMS) return null;
 
+    // Lo enlazado ANTES de guardar, en los dos sentidos: para saber qué
+    // enlaces ha quitado el formulario.
+    const before = prev ? getLinked(kindId, prev.id).map(function (l) { return l.kind + ':' + l.item.id; }) : [];
+
     const item = cleanItem(kind, Object.assign({}, prev, data, {
       id: prev ? prev.id : U.uid(kindId),
       createdAt: prev ? prev.createdAt : today,
@@ -579,17 +705,17 @@ VD.store = (function () {
     else list.push(item);
 
     // El formulario manda la lista completa de enlaces, en los dos
-    // sentidos. Lo que quitaste y estaba guardado en el otro elemento se
-    // borra allí también; si no, getLinked lo seguiría enseñando.
+    // sentidos. Lo que QUITASTE y estaba guardado en el otro elemento se
+    // borra allí también; si no, getLinked lo seguiría enseñando. Solo lo
+    // quitado: nada que el formulario no haya tocado se borra del otro lado.
     if (Array.isArray(data.links)) {
       const self = kindId + ':' + item.id;
+      const wanted = data.links;
       item.links = item.links.filter(function (k) { return k !== self; });
-      U.KINDS.forEach(function (kind) {
-        state[kind.id].forEach(function (other) {
-          if (!other.links || other.links.indexOf(self) < 0) return;
-          if (item.links.indexOf(kind.id + ':' + other.id) >= 0) return;
-          other.links = other.links.filter(function (k) { return k !== self; });
-        });
+      before.forEach(function (key) {
+        if (wanted.indexOf(key) >= 0) return;
+        const ref = resolveLink(key);
+        if (ref && ref.item.links) ref.item.links = ref.item.links.filter(function (k) { return k !== self; });
       });
     }
 
@@ -652,13 +778,45 @@ VD.store = (function () {
     const today = U.todayKey();
     let added = 0;
     let updated = 0;
+    // Cada elemento que ya existía se completa una sola vez, y nunca se
+    // empareja con uno creado en esta misma importación: dos filas "Gmail"
+    // (personal y trabajo) son dos cuentas, no una pisada por la otra.
+    const touched = Object.create(null);
+
+    /**
+     * ¿Con qué elemento de antes va esta fila? Primero por Id (lo trae el
+     * CSV exportado); si no, por nombre, y si hay varios con ese nombre,
+     * por usuario o cuenta. Varios y nada que los distinga → el primero
+     * que esta importación no haya tocado aún, en orden.
+     */
+    function match(e, list, existing) {
+      if (e.id) {
+        for (let i = 0; i < existing; i++) if (list[i].id === e.id) return touched[e.kind + i] ? -1 : i;
+      }
+      const name = U.plain(e.data.name);
+      const who = U.plain(e.data.user || e.data.account || '');
+      const same = [];
+      for (let i = 0; i < existing; i++) {
+        if (!touched[e.kind + i] && U.plain(list[i].name) === name) same.push(i);
+      }
+      if (!same.length) return -1;
+      if (who) {
+        const exact = same.filter(function (i) { return U.plain(list[i].user || list[i].account || '') === who; });
+        if (exact.length) return exact[0];
+        // Mismo nombre pero otro usuario: es otra cuenta, no la misma.
+        if (same.every(function (i) { return list[i].user || list[i].account; })) return -1;
+      }
+      return same[0];
+    }
+
+    const existing = Object.create(null);
+    U.KINDS.forEach(function (k) { existing[k.id] = state[k.id].length; });
 
     entries.forEach(function (e) {
       const kind = U.kindById(e.kind);
       const list = state[e.kind];
-      const name = U.plain(e.data.name);
-      let index = -1;
-      for (let i = 0; i < list.length; i++) if (U.plain(list[i].name) === name) { index = i; break; }
+      const index = match(e, list, existing[e.kind]);
+      if (index >= 0) touched[e.kind + index] = true;
 
       if (index >= 0) {
         const merged = Object.assign({}, list[index]);
@@ -731,18 +889,24 @@ VD.store = (function () {
   }
 
   /** Borrar todo: datos y contraseña. Se empieza de cero, sin cifrar. */
+  /** Borrar todo: datos, contraseña y copias de rescate. Se empieza de cero, sin cifrar. */
   function reset() {
     cryptoKey = null;
     cryptoSalt = null;
     verifier = null;
     sealedText = null;
+    try {
+      localStorage.removeItem(BACKUP_KEY);
+      localStorage.removeItem(RESCUE_KEY);
+    } catch (e) { /* sin acceso */ }
     state = defaultState();
     save(true);
     emit('replace');
   }
 
   return {
-    load: load, save: save, subscribe: subscribe,
+    load: load, save: save, flush: flush, subscribe: subscribe, isStale: isStale, schemaVersion: schemaVersion,
+    getRescues: getRescues, removeRescue: removeRescue,
     isEncrypted: isEncrypted, isLocked: isLocked, cryptoAvailable: cryptoAvailable, isEnvelope: isEnvelope,
     unlock: unlock, checkPassword: checkPassword, setPassword: setPassword, removePassword: removePassword,
     forgetAndReset: forgetAndReset, exportNow: exportNow, openBackup: openWithPassword,

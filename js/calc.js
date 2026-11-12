@@ -83,7 +83,7 @@ VD.calc = (function () {
   /** Gasto total. Los dominios con coste anual se suman prorrateados. */
   function totals(state) {
     state = live(state);
-    const byCat = {};
+    const byCat = Object.create(null);
     let subsMonth = 0;
     let active = 0;
     let shared = 0;
@@ -97,7 +97,13 @@ VD.calc = (function () {
       byCat[s.category] = (byCat[s.category] || 0) + m;
     });
 
-    const websYear = state.webs.reduce(function (sum, w) { return sum + (w.price || 0); }, 0);
+    // Un dominio que caducó hace más de 60 días y no se renueva solo ya no
+    // se paga: deja de sumar (y de avisar, ver upcoming).
+    const cutoff = U.addDaysKey(U.todayKey(), -60);
+    const websYear = state.webs.reduce(function (sum, w) {
+      if (!w.autoRenew && w.expires && w.expires < cutoff) return sum;
+      return sum + (w.price || 0);
+    }, 0);
 
     const kind = U.kindById('subs');
     const categories = Object.keys(byCat)
@@ -221,6 +227,51 @@ VD.calc = (function () {
     };
   }
 
+  /* ── Cuidado de dispositivos ──────────────────────────────
+     Dos preguntas: ¿toca cargarlo? (si tiene aviso de carga) y ¿lo uso?
+     (último uso hace más de IDLE_DAYS). Lo vendido o roto no cuenta. ── */
+
+  const IDLE_DAYS = 182;     // seis meses sin usarlo: ¿lo guardas, lo vendes?
+
+  /**
+   * { charge: 'none' | 'never' | 'late' | 'soon' | 'ok', due, days, idle, idleDays }
+   * `days` = días hasta que toque cargar (negativos si ya tocó).
+   */
+  function deviceStatus(d, today) {
+    const out = { charge: 'none', due: null, days: null, idle: false, idleDays: null };
+    if (d.status === 'vendido' || d.status === 'roto') return out;
+
+    const freq = U.byId(U.CHARGE_FREQ, d.chargeEvery);
+    if (freq && freq.days) {
+      if (!d.lastCharged) out.charge = 'never';
+      else {
+        out.due = U.addDaysKey(d.lastCharged, freq.days);
+        out.days = U.daysBetween(today, out.due);
+        out.charge = out.days < 0 ? 'late' : out.days <= SOON_DAYS ? 'soon' : 'ok';
+      }
+    }
+    if (d.lastUsed) {
+      out.idleDays = U.daysBetween(d.lastUsed, today);
+      out.idle = out.idleDays > IDLE_DAYS;
+    }
+    return out;
+  }
+
+  /** Lo que toca cargar (más urgente primero) y lo que lleva tiempo sin usarse. */
+  function deviceCare(state, today) {
+    state = live(state);
+    const rows = state.devices.map(function (d) { return { item: d, status: deviceStatus(d, today) }; });
+    const toCharge = rows.filter(function (x) { return ['never', 'late', 'soon'].indexOf(x.status.charge) >= 0; })
+      .sort(function (a, b) {
+        const da = a.status.days === null ? -Infinity : a.status.days;
+        const db = b.status.days === null ? -Infinity : b.status.days;
+        return da - db;
+      });
+    const idle = rows.filter(function (x) { return x.status.idle; })
+      .sort(function (a, b) { return b.status.idleDays - a.status.idleDays; });
+    return { toCharge: toCharge, idle: idle };
+  }
+
   /** Cuentas que quieres borrar y las que ya borraste. */
   function cleanup(state) {
     state = live(state);
@@ -253,6 +304,7 @@ VD.calc = (function () {
   return {
     myAmount: myAmount, monthly: monthly, nextCharge: nextCharge, nextExpiry: nextExpiry,
     totals: totals, upcoming: upcoming, security: security, cleanup: cleanup, migration: migration,
-    copyStatus: copyStatus, copies: copies, live: live
+    copyStatus: copyStatus, copies: copies, live: live,
+    deviceStatus: deviceStatus, deviceCare: deviceCare, IDLE_DAYS: IDLE_DAYS
   };
 })();

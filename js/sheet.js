@@ -30,10 +30,12 @@ VD.sheet = (function () {
     return cols;
   }
 
-  /* "Archivado" va al final: no es un campo del formulario, pero sin él
-     exportar y volver a importar desarchivaría todo. */
+  /* "Archivado" e "Id" van al final. No son campos del formulario, pero
+     sin ellos exportar y volver a importar desarchivaría todo, y dos
+     elementos con el mismo nombre (dos cuentas "Gmail") se confundirían.
+     El Id no se toca: es lo que dice "esta fila es este elemento". */
   function header() {
-    return ['tipo'].concat(columns().map(function (c) { return c.label; }), ['Archivado']);
+    return ['tipo'].concat(columns().map(function (c) { return c.label; }), ['Archivado', 'Id (no tocar)']);
   }
 
   /** "18/11/2026": como lo escribe y lo entiende Excel en español. */
@@ -57,7 +59,7 @@ VD.sheet = (function () {
       if (f.type === 'money') return v === null ? '' : String(v).replace('.', ',');
       if (f.type === 'date') return dateCell(v);
       return v === null || v === undefined ? '' : v;
-    }), [item.archived ? 'sí' : '']);
+    }), [item.archived ? 'sí' : '', item.id]);
   }
 
   /* Un ejemplo por sección para la plantilla, escrito como lo teclearías
@@ -73,7 +75,8 @@ VD.sheet = (function () {
     programs: { name: 'Steam', category: 'Juegos', migration: 'Pendiente', source: 'Web oficial',
                 account: 'mi_usuario', transfer: 'Partidas guardadas' },
     devices: { name: 'Móvil personal', category: 'Móviles', model: 'Pixel 8', purchaseDate: '01/03/2024',
-               warrantyUntil: '01/03/2027', price: '699', status: 'En uso' },
+               warrantyUntil: '01/03/2027', price: '699', status: 'En uso',
+               lastUsed: '10/11/2026', lastCharged: '10/11/2026', chargeEvery: 'Sin aviso' },
     licenses: { name: 'Office 2021', category: 'Ofimática', keyWhere: 'Correo de compra',
                 seller: 'Microsoft Store', purchaseDate: '15/01/2025' },
     copies: { name: 'Fotos del móvil', category: 'Fotos y vídeos', where: 'Google Fotos',
@@ -137,6 +140,14 @@ VD.sheet = (function () {
   /* Cabecera → campo. Vale la etiqueta de cualquier tipo ("Precio de
      compra" y "Coste al año" son los dos `price`), el nombre interno y
      algunos sinónimos. */
+  /** Para Exportar: un valor que empiece por = + - @ se abriría en Excel
+   *  como fórmula (una nota "=HIPERVINCULO(…)" se ejecutaría). Con un
+   *  apóstrofo delante es texto; al importar se quita. */
+  function safeCell(value) {
+    const s = String(value === null || value === undefined ? '' : value);
+    return /^[=+\-@\t\r]/.test(s) ? "'" + s : s;
+  }
+
   const HEADER_ALIASES = {
     nombre: 'name', name: 'name', titulo: 'name',
     precio: 'price', importe: 'price', coste: 'price', etiqueta: 'tags', web: 'url', url: 'url',
@@ -144,9 +155,13 @@ VD.sheet = (function () {
   };
 
   function headerMap() {
-    // "tipo" es siempre la sección, aunque "Tipo" también sea la etiqueta
-    // de la categoría en Dispositivos o Webs: por eso va antes que nada.
-    const map = { tipo: '__kind', seccion: '__kind', archivado: '__archived' };
+    // Sin prototipo: una cabecera "constructor" no debe encontrar nada.
+    // "tipo" es la sección, aunque "Tipo" también sea la etiqueta de la
+    // categoría en Dispositivos o Webs: por eso va antes que nada (y, si su
+    // valor no es una sección, parse lo prueba como categoría).
+    const map = Object.create(null);
+    map.tipo = '__kind'; map.seccion = '__kind'; map.archivado = '__archived';
+    map.id = '__id'; map.idnotocar = '__id';
     U.KINDS.forEach(function (k) {
       k.fields.forEach(function (f) {
         if (!map[norm(f.label)]) map[norm(f.label)] = f.key;
@@ -172,65 +187,77 @@ VD.sheet = (function () {
       if ([k.id, k.one, k.name, k.nav].some(function (x) { return norm(x) === v; })) return k.id;
       if (norm(k.one) + 's' === v || norm(k.one) + 'es' === v) return k.id;
     }
-    return KIND_ALIASES[v] || null;
+    return U.own(KIND_ALIASES, v) ? KIND_ALIASES[v] : null;
   }
 
-  /** "18/11/2026", "18-11-26", "2026-11-18" → "2026-11-18"; si no, null. */
+  const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+  /**
+   * "18/11/2026", "18-11-26", "2026-11-18", "18-nov-26", "18 nov 2026" →
+   * "2026-11-18"; si no, null. Año de dos cifras: 70–99 → 19xx, si no 20xx
+   * (una compra de 1998 no es de 2098).
+   */
   function parseDate(s) {
-    const t = String(s).trim();
+    const t = U.plain(s).replace(/\.$/, '');
     let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
     if (m) return valid(m[1], m[2], m[3]);
     m = t.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2}|\d{4})$/);
-    if (m) return valid(m[3].length === 2 ? '20' + m[3] : m[3], m[2], m[1]);
+    if (m) return valid(year(m[3]), m[2], m[1]);
+    m = t.match(/^(\d{1,2})[\s\/.\-]+(?:de\s+)?([a-z]{3})[a-z]*\.?[\s\/.\-]+(?:de\s+)?(\d{2}|\d{4})$/);
+    if (m && MONTHS.indexOf(m[2]) >= 0) return valid(year(m[3]), MONTHS.indexOf(m[2]) + 1, m[1]);
     return null;
 
+    function year(y) { return y.length === 2 ? (Number(y) >= 70 ? '19' : '20') + y : y; }
     function valid(y, mo, d) {
       const key = y + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0');
       return U.isValidKey(key) ? key : null;
     }
   }
 
-  /** "1.234,56 €", "13,99", "13.99" → número; si no, null. */
-  function parseMoney(s) {
-    let raw = String(s).replace(/[\s€]/g, '');
-    if (!raw) return null;
-    if (raw.indexOf(',') >= 0) raw = raw.replace(/\./g, '').replace(',', '.');
-    return /^\d+(\.\d+)?$/.test(raw) ? Number(raw) : null;
-  }
-
   const YES = ['si', 's', 'x', 'true', 'verdadero', '1', 'yes', 'activa', 'activo'];
+  const NO = ['no', 'n', 'false', 'falso', '0', 'inactiva', 'inactivo'];
 
   /**
-   * Una celda → valor del campo, o undefined si está vacía o no se
-   * entiende (y entonces el saneado pone el valor por defecto o, si el
-   * elemento ya existía, se queda el que tenía).
+   * Una celda → { value } si se entiende, { skip: true } si está vacía o
+   * no aplica, o { bad: true } si tiene algo que no se entiende (se avisa
+   * antes de importar, en vez de tirarla en silencio).
    */
   function cellValue(f, raw) {
-    const s = String(raw).trim();
-    if (!s) return undefined;
+    // Un apóstrofo delante de = + - @ lo pone Exportar para que Excel no
+    // lo tome por fórmula: al volver se quita.
+    const s = String(raw).trim().replace(/^'(?=[=+\-@])/, '');
+    if (!s) return { skip: true };
     switch (f.type) {
       case 'select': {
         const v = norm(s);
         const o = f.options.filter(function (x) { return norm(x.name) === v || norm(x.id) === v; })[0] ||
                   f.options.filter(function (x) { return norm(x.name).indexOf(v) === 0; })[0];
-        return o ? o.id : undefined;
+        return o ? { value: o.id } : { bad: true };
       }
-      case 'money': { const n = parseMoney(s); return n === null ? undefined : n; }
-      case 'date': { const d = parseDate(s); return d || undefined; }
-      case 'check': return YES.indexOf(norm(s)) >= 0;
-      case 'links': return undefined;     // los enlaces no se importan
-      default: return s;
+      case 'money': {
+        const n = U.parseMoney(s);
+        return n === null ? { skip: true } : isNaN(n) ? { bad: true } : { value: n };
+      }
+      case 'date': { const d = parseDate(s); return d ? { value: d } : { bad: true }; }
+      case 'check': {
+        const v = norm(s);
+        return YES.indexOf(v) >= 0 ? { value: true } : NO.indexOf(v) >= 0 ? { value: false } : { bad: true };
+      }
+      case 'links': return { skip: true };     // los enlaces no se importan
+      default: return { value: s };
     }
   }
 
   /**
-   * Texto pegado o CSV → { entries: [{ kind, data }], skipped: [{ line, reason }],
-   *                        ignored: [cabeceras que no se reconocen] }
-   * `fallbackKind`: la sección de las filas sin columna "tipo".
+   * Texto pegado o CSV → { entries: [{ kind, id?, data }], skipped: [{ line, reason }],
+   *                        ignored: [cabeceras que no se reconocen],
+   *                        unclear: [{ line, column, value }] celdas que no se entienden }
+   * `fallbackKind`: la sección de las filas sin columna "tipo" (o cuya
+   * columna "Tipo" resulta ser la categoría: "Móviles", "Dominios"…).
    */
   function parse(text, fallbackKind) {
     const rows = splitRows(text);
-    const out = { entries: [], skipped: [], ignored: [] };
+    const out = { entries: [], skipped: [], ignored: [], unclear: [] };
     if (rows.length < 2) {
       out.skipped.push({ line: 1, reason: 'Hace falta la fila de cabecera y al menos una fila de datos.' });
       return out;
@@ -247,33 +274,50 @@ VD.sheet = (function () {
       return out;
     }
     const kindCol = keys.indexOf('__kind');
+    const hasCategory = keys.indexOf('category') >= 0;
 
     rows.slice(1).forEach(function (cells, i) {
       const line = i + 2;
-      const kindId = kindCol >= 0 && cells[kindCol] && cells[kindCol].trim() ? kindOf(cells[kindCol]) : fallbackKind;
+      const typeCell = kindCol >= 0 && cells[kindCol] ? cells[kindCol].trim() : '';
+      let kindId = typeCell ? kindOf(typeCell) : fallbackKind;
+      // "Tipo" que no es una sección pero hay sección elegida: es la
+      // categoría ("Tipo = Móviles" en una hoja de dispositivos).
+      let typeAsCategory = null;
+      if (!kindId && typeCell && fallbackKind) {
+        kindId = fallbackKind;
+        if (!hasCategory) typeAsCategory = typeCell;
+      }
       if (!kindId) {
-        out.skipped.push({ line: line, reason: kindCol >= 0 && cells[kindCol] && cells[kindCol].trim()
-          ? 'Tipo «' + cells[kindCol].trim() + '» desconocido.' : 'Falta el tipo.' });
+        out.skipped.push({ line: line, reason: typeCell ? 'Tipo «' + typeCell + '» desconocido.' : 'Falta el tipo.' });
         return;
       }
       const kind = U.kindById(kindId);
       const data = {};
+      let id = null;
+
+      function take(f, raw, header) {
+        const v = cellValue(f, raw);
+        if (v.bad) out.unclear.push({ line: line, column: header, value: String(raw).trim() });
+        else if (!v.skip) data[f.key] = v.value;
+      }
+
       keys.forEach(function (key, c) {
         if (!key || key === '__kind' || cells[c] === undefined) return;
         if (key === '__archived') {
           if (String(cells[c]).trim()) data.archived = YES.indexOf(norm(cells[c])) >= 0;
           return;
         }
+        if (key === '__id') { id = String(cells[c]).trim() || null; return; }
         const f = kind.fields.filter(function (x) { return x.key === key; })[0];
         if (!f) return;                  // columna de otra sección: vacía en esta fila
-        const v = cellValue(f, cells[c]);
-        if (v !== undefined) data[key] = v;
+        take(f, cells[c], rows[0][c].trim());
       });
+      if (typeAsCategory) take(kind.fields.filter(function (x) { return x.key === 'category'; })[0], typeAsCategory, 'Tipo');
       if (!data.name) { out.skipped.push({ line: line, reason: 'Sin nombre.' }); return; }
-      out.entries.push({ kind: kindId, data: data });
+      out.entries.push({ kind: kindId, id: id, data: data });
     });
     return out;
   }
 
-  return { columns: columns, header: header, row: row, template: template, parse: parse };
+  return { columns: columns, header: header, row: row, template: template, parse: parse, safeCell: safeCell };
 })();

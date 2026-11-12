@@ -15,7 +15,7 @@ VD.utils = (function () {
      Aparece en otros dos sitios: CACHE en sw.js (un service worker no
      puede leer este archivo) y data-build en index.html. Si se
      desincronizan, la app lo avisa al arrancar. ──────────────── */
-  const VERSION = '2.3.1';
+  const VERSION = '2.5.0';
   const BUILD_DATE = '2026-11-12';
   /* Igual que PREFIX en sw.js. Único en alexlobar.github.io: no puede ser
      el comienzo del prefijo de otra app (ver Service-worker-cache.md). */
@@ -32,9 +32,11 @@ VD.utils = (function () {
     { id: 'violet',  name: 'Violeta',  dark: ['#a78bfa', '#c4b5fd', '#1b1036'], light: ['#6d28d9', '#5b21b6', '#ffffff'] },
     { id: 'pink',    name: 'Rosa',     dark: ['#f472b6', '#f9a8d4', '#2d0a1c'], light: ['#be185d', '#9d174d', '#ffffff'] },
     { id: 'red',     name: 'Rojo',     dark: ['#f87171', '#fca5a5', '#2b0707'], light: ['#b91c1c', '#991b1b', '#ffffff'] },
-    { id: 'orange',  name: 'Naranja',  dark: ['#fb923c', '#fdba74', '#2a1204'], light: ['#c2410c', '#9a3412', '#ffffff'] },
-    { id: 'amber',   name: 'Ámbar',    dark: ['#fbbf24', '#fcd34d', '#2a1a02'], light: ['#b45309', '#92400e', '#ffffff'] },
-    { id: 'green',   name: 'Verde',    dark: ['#4ade80', '#86efac', '#052e16'], light: ['#15803d', '#166534', '#ffffff'] }
+    // En claro, naranja, ámbar y verde van algo más oscuros de lo "natural":
+    // como texto sobre su fondo suave (etiquetas) no llegaban a 4,5:1.
+    { id: 'orange',  name: 'Naranja',  dark: ['#fb923c', '#fdba74', '#2a1204'], light: ['#b23a0a', '#9a3412', '#ffffff'] },
+    { id: 'amber',   name: 'Ámbar',    dark: ['#fbbf24', '#fcd34d', '#2a1a02'], light: ['#9a4a07', '#7c3d06', '#ffffff'] },
+    { id: 'green',   name: 'Verde',    dark: ['#4ade80', '#86efac', '#052e16'], light: ['#16703a', '#14532d', '#ffffff'] }
   ];
 
   /* ── Tarjetas del Resumen ─────────────────────────────────
@@ -47,7 +49,8 @@ VD.utils = (function () {
     { id: 'upcoming',  name: 'Próximos 30 días' },
     { id: 'security',  name: 'Seguridad' },
     { id: 'copies',    name: 'Copias de seguridad' },
-    { id: 'cleanup',   name: 'Cuentas para borrar' }
+    { id: 'cleanup',   name: 'Cuentas para borrar' },
+    { id: 'care',      name: 'Cuidado de dispositivos' }
   ];
 
   /* ── Catálogos ────────────────────────────────────────────
@@ -209,6 +212,16 @@ VD.utils = (function () {
     { id: 'no',        name: 'No lo paso' }
   ];
 
+  /* Cada cuánto cargar un dispositivo. Una batería de litio que se queda
+     a cero meses en un cajón se estropea: guardada, conviene cargarla
+     (hasta la mitad, más o menos) cada pocos meses. Por defecto, sin aviso. */
+  const CHARGE_FREQ = [
+    { id: 'no',         name: 'Sin aviso' },
+    { id: 'mensual',    name: 'Cada mes',     days: 30 },
+    { id: 'trimestral', name: 'Cada 3 meses', days: 91 },
+    { id: 'semestral',  name: 'Cada 6 meses', days: 182 }
+  ];
+
   const DEVICE_STATUS = [
     { id: 'uso',      name: 'En uso' },
     { id: 'guardado', name: 'Guardado' },
@@ -306,7 +319,7 @@ VD.utils = (function () {
         TAGS_FIELD,
         LINKS_FIELD,
         { key: 'notes', label: 'Notas', type: 'textarea',
-          hint: 'No apuntes contraseñas: aquí no van cifradas. Para eso, un gestor de contraseñas.' }
+          hint: 'No apuntes contraseñas aquí: para eso, un gestor de contraseñas.' }
       ]
     },
     {
@@ -363,6 +376,10 @@ VD.utils = (function () {
         { key: 'warrantyUntil', label: 'Garantía hasta', type: 'date', half: true },
         { key: 'price', label: 'Precio de compra (€)', type: 'money', half: true },
         { key: 'status', label: 'Estado', type: 'select', options: DEVICE_STATUS, half: true },
+        { key: 'lastUsed', label: 'Último uso', type: 'date', half: true },
+        { key: 'lastCharged', label: 'Última carga', type: 'date', half: true },
+        { key: 'chargeEvery', label: 'Avisar para cargarlo', type: 'select', options: CHARGE_FREQ,
+          hint: 'Para lo que guardas: una batería que se queda a cero mucho tiempo se estropea. Cada 3 meses va bien.' },
         LOGO_FIELD,
         TAGS_FIELD,
         LINKS_FIELD,
@@ -523,6 +540,31 @@ VD.utils = (function () {
     return fmtMoney.format(Number(n) || 0);
   }
 
+  /**
+   * Importe escrito a la española → número; "" → null; basura → NaN.
+   *   "13,99" · "1.234,56 €" · "13.99" → decimales como se esperan
+   *   "1.299" · "12.500" → miles: un punto seguido de grupos de tres
+   *   cifras es separador de miles, no decimal (antes "1.299" era 1,30 €).
+   * Lo usan el formulario y la importación desde Excel.
+   */
+  function parseMoney(text) {
+    let raw = String(text).replace(/[\s€]|eur(os?)?$/gi, '');
+    if (!raw) return null;
+    if (raw.indexOf(',') >= 0) raw = raw.replace(/\./g, '').replace(',', '.');
+    else if (/^\d{1,3}(\.\d{3})+$/.test(raw)) raw = raw.replace(/\./g, '');
+    return /^\d+(\.\d+)?$/.test(raw) ? Number(raw) : NaN;
+  }
+
+  /**
+   * ¿Tiene `obj` la clave `key` como propia? Los catálogos son objetos
+   * literales: sin esto, "constructor" o "toString" se encontraban como
+   * claves heredadas de Object y rompían la app (una suscripción llamada
+   * "Constructor de webs" la dejaba sin arrancar).
+   */
+  function own(obj, key) {
+    return Object.prototype.hasOwnProperty.call(obj, key);
+  }
+
   /* ── Texto ────────────────────────────────────────────────── */
 
   /** Para buscar: sin tildes ni mayúsculas, "Japón" y "japon" caen igual. */
@@ -608,12 +650,12 @@ VD.utils = (function () {
     KINDS: KINDS, kindById: kindById,
     PERIODS: PERIODS, periodById: periodById,
     TWOFA: TWOFA, DEVICE_STATUS: DEVICE_STATUS, ACCOUNT_STATUS: ACCOUNT_STATUS, LOGIN_METHODS: LOGIN_METHODS, MIGRATION: MIGRATION,
-    COPY_FREQ: COPY_FREQ, COPY_METHODS: COPY_METHODS, MIGRATION_PC: MIGRATION_PC,
+    COPY_FREQ: COPY_FREQ, COPY_METHODS: COPY_METHODS, MIGRATION_PC: MIGRATION_PC, CHARGE_FREQ: CHARGE_FREQ,
     optionName: optionName, byId: byId,
     toKey: toKey, fromKey: fromKey, isValidKey: isValidKey, todayKey: todayKey,
     addDaysKey: addDaysKey, addMonthsKey: addMonthsKey, daysBetween: daysBetween,
     formatDate: formatDate,
-    money: money, plain: plain, safeUrl: safeUrl, shortUrl: shortUrl,
+    money: money, parseMoney: parseMoney, own: own, plain: plain, safeUrl: safeUrl, shortUrl: shortUrl,
     $: $, $$: $$, createEl: createEl,
     uid: uid, debounce: debounce
   };

@@ -2,7 +2,7 @@
 <!-- data-build tiene que coincidir con VERSION en js/utils.js y con CACHE en
      sw.js. Si el navegador sirve un index.html de una versión y unos .js de
      otra, la app lo detecta y avisa en vez de quedarse sin responder. -->
-<html lang="es" data-theme="dark" data-build="2.3.1">
+<html lang="es" data-theme="dark" data-build="2.5.0">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -21,7 +21,9 @@
 <body>
   <a class="skip-link" href="#main">Saltar al contenido</a>
 
-  <div class="app-shell">
+  <!-- id para hacerla inerte mientras está el candado: el tabulador y el
+       lector de pantalla no llegan a lo de detrás. -->
+  <div class="app-shell" id="appShell">
 
     <!-- ══ CABECERA ══ -->
     <header class="app-header">
@@ -127,6 +129,13 @@
             <h2 class="card__title">Copias de seguridad</h2>
             <p class="security__line" id="copiesLine">—</p>
             <ul class="events" id="copiesHomeList"></ul>
+          </article>
+
+          <!-- Solo si algún dispositivo toca cargarlo o lleva meses sin usarse. -->
+          <article class="card" id="careCard" hidden>
+            <h2 class="card__title">Cuidado de dispositivos</h2>
+            <p class="security__line" id="careLine">—</p>
+            <ul class="events" id="careList"></ul>
           </article>
 
           <!-- Solo si hay cuentas marcadas como "Quiero borrarla". -->
@@ -389,6 +398,15 @@
           <p class="settings__note" id="buildHint" hidden></p>
         </div>
 
+        <!-- Solo si hay algo: el sobre cifrado de "He olvidado la
+             contraseña" o unos datos que llegaron dañados. -->
+        <div class="card settings" id="rescueCard" hidden>
+          <h2 class="card__title">Copias de rescate</h2>
+          <p class="settings__note">Datos que la app no pudo abrir y guardó aparte para que no se pierdan.
+            Descárgalos antes de borrarlos: lo cifrado se abre con <em>Importar copia</em> y la contraseña de entonces.</p>
+          <ul class="layout" id="rescueList"></ul>
+        </div>
+
         <div class="card settings">
           <h2 class="card__title">Borrar</h2>
           <p class="settings__note">Borra todo lo apuntado en este navegador. Exporta antes una copia.</p>
@@ -397,8 +415,8 @@
           </div>
         </div>
 
-        <p class="privacy">🔒 Aquí no se guardan contraseñas ni números de tarjeta: los datos del
-          navegador no van cifrados. Para eso, usa un gestor de contraseñas.</p>
+        <!-- El texto cambia si hay contraseña (ui.renderSettings). -->
+        <p class="privacy" id="privacyNote">🔒 Aquí no se guardan contraseñas ni números de tarjeta.</p>
       </section>
 
     </main>

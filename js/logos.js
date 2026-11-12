@@ -286,10 +286,16 @@ VD.logos = (function () {
     return U.plain(s).replace(/[^a-z0-9]/g, '');
   }
 
+  // Siempre con U.own: "constructor", "toString"… son claves heredadas de
+  // cualquier objeto y se colaban como logos (y la app dejaba de arrancar).
+  function known(slug) {
+    return U.own(ICONS, slug) || U.own(TEXT, slug);
+  }
+
   function resolve(key) {
     if (!key) return null;
-    const slug = ICONS[key] || TEXT[key] ? key : ALIASES[key];
-    return slug && (ICONS[slug] || TEXT[slug]) ? slug : null;
+    const slug = known(key) ? key : U.own(ALIASES, key) ? ALIASES[key] : null;
+    return slug && known(slug) ? slug : null;
   }
 
   /**
@@ -340,12 +346,12 @@ VD.logos = (function () {
    *   { title, bg, fg, text }  — siglas
    */
   function get(slug) {
-    if (ICONS[slug]) {
+    if (U.own(ICONS, slug)) {
       const i = ICONS[slug];
       const bg = '#' + i[1];
       return { title: i[0], bg: bg, fg: readableOn(bg), path: i[2] };
     }
-    if (TEXT[slug]) {
+    if (U.own(TEXT, slug)) {
       const t = TEXT[slug];
       return { title: t[0], bg: t[1], fg: t[3] || readableOn(t[1]), text: t[2] };
     }
@@ -372,17 +378,17 @@ VD.logos = (function () {
   // también por título normalizado, no solo por slug.
   Object.keys(ICONS).forEach(function (k) {
     const t = norm(ICONS[k][0]);
-    if (!ALIASES[t] && !ICONS[t]) ALIASES[t] = k;
+    if (!U.own(ALIASES, t) && !U.own(ICONS, t)) ALIASES[t] = k;
   });
   Object.keys(TEXT).forEach(function (k) {
     const t = norm(TEXT[k][0]);
-    if (!ALIASES[t] && !TEXT[t]) ALIASES[t] = k;
+    if (!U.own(ALIASES, t) && !U.own(TEXT, t)) ALIASES[t] = k;
   });
 
   /** Para el selector visual: [{ slug, title }] de todas, por título. */
   function all() {
     return Object.keys(ICONS).concat(Object.keys(TEXT))
-      .map(function (k) { return { slug: k, title: (ICONS[k] || TEXT[k])[0] }; })
+      .map(function (k) { return { slug: k, title: (U.own(ICONS, k) ? ICONS[k] : TEXT[k])[0] }; })
       .sort(function (a, b) { return a.title.localeCompare(b.title, 'es', { sensitivity: 'base' }); });
   }
 

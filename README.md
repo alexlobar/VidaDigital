@@ -2,10 +2,12 @@
 
 Tus suscripciones, cuentas, apps, dispositivos, licencias, copias de seguridad y webs en un solo sitio, enlazados entre sí, con el gasto total, lo que vence en los próximos 30 días, qué cuentas no tienen verificación en dos pasos, qué copias tocan y cómo va el cambio de móvil. HTML, CSS y JavaScript vanilla: sin dependencias, sin build, offline, con los datos en `localStorage`.
 
-**Versión documentada: 2.3.1** (12-11-2026) · esquema de datos **1**.
+**Versión documentada: 2.5.0** (12-11-2026) · esquema de datos **1**.
 
 | Versión | Cambios |
 |---|---|
+| 2.5.0 | **Cuidado de dispositivos**: último uso, última carga y aviso para cargar; botones *Usado* y *Cargado* en cada fila; tarjeta en el Resumen con lo que toca cargar y lo que lleva más de 6 meses sin usarse. Fechas largas en meses («hace 10 meses») |
+| 2.4.0 | Revisión completa. Arreglos: nombres como «constructor» rompían la app; importar Excel juntaba filas con el mismo nombre; «1.299» se leía como 1,30 €; cerrar el formulario perdía los cambios sin avisar; dos ventanas se pisaban los datos; más de 30 enlaces borraban enlaces ajenos; tarjetas que no volvían a salir; recarga por versión nueva a mitad de algo; fórmulas en el CSV; contraste del tema claro. Nuevo: **autobloqueo** a los 5 min con contraseña, **copias de rescate** en Ajustes, columna **Id** en el CSV, menú del Resumen en dos columnas en el móvil |
 | 2.3.1 | **Guardar copia en Drive** rehecho con las reglas de Chrome Android: se comparte en el mismo toque (la copia, también la cifrada, ya está hecha), solo el archivo, siempre `.txt`; solo en pantallas táctiles, en el ordenador se descarga |
 | 2.3.0 | **Contraseña** (datos y copias cifrados con AES-256). **Guardar copia en Drive** con el menú Compartir. **Duplicar**. **Selector visual de logos** con vista previa. **Resumen a tu gusto** (ordenar y ocultar tarjetas y secciones). **Botón + flotante**. **Color de acento** |
 | 2.2.0 | **Buscador global** en el Resumen. Sección **Programas** con su tarjeta *Cambio de ordenador*. **Etiquetas** libres con filtro en cada lista. **Archivar**. **Importar desde Excel** (pegar celdas o CSV) con plantilla |
@@ -51,7 +53,7 @@ Orden de carga = orden de dependencia: `utils → logos → store → calc → s
 
 **Programas.** Lo instalado en el ordenador: nombre, categoría, estado en el cambio de ordenador (pendiente, instalado, migrado, no lo paso), de dónde se instala, cuenta, qué hay que pasar (ajustes, extensiones, partidas, activar la licencia…), web de descarga y notas. Funciona igual que Apps: ✓ en cada fila y la tarjeta **Cambio de ordenador** en el Resumen con *Empezar otro cambio de ordenador*. Las licencias se enlazan al programa para tenerlas a mano al reinstalar.
 
-**Dispositivos (Equipos).** Nombre, tipo, marca y modelo, número de serie, fecha de compra, fin de garantía, precio, estado y notas.
+**Dispositivos (Equipos).** Nombre, tipo, marca y modelo, número de serie, fecha de compra, fin de garantía, precio, estado, **último uso**, **última carga**, **aviso para cargarlo** (sin aviso, cada mes, cada 3 o 6 meses) y notas. Cada fila tiene dos botones, **✋ Usado** y **🔋 Cargado**, que apuntan la fecha de hoy con *Deshacer* (no salen en lo vendido o roto). La insignia dice *Toca cargar* o *Cargar en N días* si tiene aviso, *Sin usar* si lleva más de 6 meses sin usarse, y si no, el estado. La tarjeta **Cuidado de dispositivos** del Resumen sale cuando hay algo de eso.
 
 **Licencias y claves.** Programa o juego, categoría, dónde está la clave (nunca la clave en sí), cuenta asociada, dónde se compró, fecha de compra, caducidad (vacía = para siempre), precio y notas. Las que caducan salen en «Próximos 30 días».
 
@@ -101,9 +103,9 @@ Cada lista se agrupa por categoría en el orden del catálogo, y a partir de 6 e
 
 | Dónde | Qué |
 |---|---|
-| `js/utils.js` | `VERSION = '2.3.1'` y `BUILD_DATE` — la fuente de verdad |
-| `sw.js` | `CACHE = 'vida-digital-v2.3.1'` |
-| `index.html` | `<html data-build="2.3.1">` |
+| `js/utils.js` | `VERSION = '2.5.0'` y `BUILD_DATE` — la fuente de verdad |
+| `sw.js` | `CACHE = 'vida-digital-v2.5.0'` |
+| `index.html` | `<html data-build="2.5.0">` |
 
 Si no coinciden, la app avisa al arrancar de que el navegador ha mezclado versiones.
 
@@ -196,6 +198,18 @@ Todo lo que se carga o se importa pasa por `cleanState()` en `store.js`, que rec
   - **Solo en pantallas táctiles** (`pointer: coarse`); en el ordenador, descarga.
   - **`AbortError` = cerraste el menú**, no un fallo; cualquier otro error descarga el `.json`.
 - **El acento va en el `style` de `<html>`**, no en el CSS: manda sobre los tokens de los dos temas sin repetir cada color en la hoja de estilos.
+- **Claves heredadas.** Los catálogos (logos, alias, cabeceras de Excel) son objetos literales: `ICONS['constructor']` devuelve la función `Object`. Toda búsqueda por texto del usuario pasa por `U.own()` (hasOwnProperty), y los mapas que se rellenan con datos se crean con `Object.create(null)`. Antes, una suscripción llamada «Constructor de webs» dejaba la app sin arrancar.
+- **Importes españoles** (`U.parseMoney`, lo usan el formulario y Excel): con coma, la coma es el decimal y los puntos son miles (`1.234,56`); sin coma, un punto seguido de grupos de tres cifras es de miles (`1.299` = 1299), y si no, decimal (`13.99`).
+- **Importar Excel empareja con cuidado** (`store.importItems`). Por la columna *Id* si la trae (el CSV exportado la lleva); si no, por nombre, y si hay varios con ese nombre, por usuario o cuenta. Nunca con algo creado en la misma importación ni con lo ya emparejado: dos filas «Gmail» son dos cuentas.
+- **Al guardar, solo se borran del otro lado los enlaces que quitaste** en el formulario (comparando con los de antes). Antes se limpiaba todo lo que no venía en la lista, y el tope de 30 enlaces hacía que editar una cuenta con 35 la desenlazara de 5.
+- **Otra ventana** (`store.js`, evento `storage`). Si la app instalada y una pestaña de Chrome están abiertas y una guarda, la otra deja de escribir (lo suyo es viejo y pisaría lo nuevo) y se recarga en cuanto no tengas nada a medias.
+- **Nunca se recarga a mitad de algo.** Una versión nueva, otra ventana o el autobloqueo esperan si hay un formulario, un diálogo o la contraseña a medio escribir: avisan con *Recargar*. Antes de recargar, `store.flush()` espera a que lo cifrado esté escrito.
+- **Autobloqueo.** Con contraseña, tras 5 minutos en segundo plano la app recarga y vuelve a pedirla (`AUTOLOCK_MIN` en `app.js`): en Android una app puede seguir viva días.
+- **Cerrar con cambios pregunta.** Cancelar, ✕, el fondo, Esc y el gesto atrás de Android (`cancel` del `<dialog>`) piden confirmación si el formulario se ha tocado.
+- **Copias de rescate** (`vidaDigital.rescue`, hasta 3). Lo que no se pudo abrir y no se debe perder: el sobre cifrado de *He olvidado la contraseña* y unos datos dañados al cargar. Se descargan o borran en *Ajustes → Copias de rescate*. Si no hay sitio para guardar el sobre, *He olvidado* no borra nada. *Borrar todos los datos* las borra también.
+- **Datos de una versión más nueva** (esquema mayor que el de la app, p. ej. una copia en caché vieja): se enseñan pero no se guarda nada, para no tirar lo que esta versión no conoce. Importar una copia así se rechaza.
+- **Cargar lo guardado.** Una batería de litio que se queda a cero meses en un cajón se estropea; cargarla cada pocos meses lo evita. Por eso el aviso de carga es por dispositivo y viene apagado: un móvil que usas a diario no lo necesita. «Sin usar» son 6 meses (`IDLE_DAYS` en `calc.js`): lo bastante para preguntarse si guardarlo, venderlo o archivarlo.
+- **CSV sin fórmulas.** Una celda que empieza por `= + - @` sale con un apóstrofo delante, para que Excel no la ejecute; al importar se quita.
 - **La app empieza vacía y tus datos no van en el código.** El repositorio de GitHub Pages es público; meter tus cuentas como datos de partida las publicaría. Se cargan importando un JSON que no se sube.
 - **El próximo cobro no se reescribe.** Se guarda la fecha que pusiste y `calc.nextCharge()` le suma periodos enteros hasta hoy, siempre desde la fecha original: un cobro el día 31 pasa por el 28 de febrero y vuelve al 31 en marzo.
 - **Un dominio caducado que no se renueva solo se sigue enseñando** (hasta 60 días) en el resumen: es justo lo que hay que ver.

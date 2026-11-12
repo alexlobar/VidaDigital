@@ -79,7 +79,7 @@
 
   --text:          #151a22;
   --text-muted:    #4d5666;
-  --text-faint:    #636c7d;
+  --text-faint:    #586174;   /* 4,5:1 también sobre --surface-3 */
 
   --accent:        #0f766e;
   --accent-hover:  #115e59;
@@ -87,10 +87,12 @@
   --on-accent:     #ffffff;
   --accent-text:   #0f766e;
 
-  --success:       #15803d;
-  --success-soft:  rgba(21, 128, 61, .10);
-  --warning:       #a16207;
-  --warning-soft:  rgba(161, 98, 7, .12);
+  /* Algo más oscuros que lo natural: las insignias son texto pequeño sobre
+     su fondo suave, y con #15803d / #a16207 no llegaban a 4,5:1. */
+  --success:       #136a35;
+  --success-soft:  rgba(19, 106, 53, .10);
+  --warning:       #8a4b06;
+  --warning-soft:  rgba(138, 75, 6, .11);
   --danger:        #be123c;
   --danger-soft:   rgba(190, 18, 60, .10);
 
@@ -391,9 +393,12 @@ a { color: var(--accent-text); }
 .item__body { flex: 1; min-width: 0; display: grid; }
 .item__name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .item__star { color: var(--warning); }
+/* Hasta dos líneas: en el móvil, el precio y la insignia de la derecha
+   dejaban la línea en «Próximo cobro 13…». */
 .item__meta {
-  color: var(--text-muted); font-size: var(--fs-sm);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-muted); font-size: var(--fs-sm); line-height: 1.35;
+  overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
 }
 .item__side { flex: none; display: grid; justify-items: end; gap: 3px; }
 .item__value { font-weight: 700; font-variant-numeric: tabular-nums; font-size: var(--fs-sm); }
@@ -425,6 +430,17 @@ a { color: var(--accent-text); }
   color: var(--success); font-weight: 800; line-height: 1.1;
 }
 .item__done:hover { background: var(--success-soft); }
+
+/* Dispositivos: «Usado» y «Cargado», uno encima del otro en la misma columna. */
+.item__pair { flex: none; display: grid; grid-template-rows: 1fr 1fr; width: 64px; border-left: 1px solid var(--border); }
+.item__mini {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
+  background: none; border: 0; padding: 2px; line-height: 1.05;
+  font-size: .65rem; font-weight: 700; color: var(--text-muted);
+}
+.item__mini + .item__mini { border-top: 1px solid var(--border); }
+.item__mini span:first-child { font-size: .9rem; }
+.item__mini:hover { background: var(--surface-2); color: var(--text); }
 .item__done-text { font-size: var(--fs-xs); font-weight: 700; }
 .item__check[aria-pressed="true"] { color: var(--bg); }
 .item__check[aria-pressed="true"]::before { background: var(--success); border-color: var(--success); }
@@ -595,6 +611,8 @@ a { color: var(--accent-text); }
 .layout__name { flex: 1; display: flex; align-items: center; gap: var(--sp-2); cursor: pointer; min-width: 0; }
 .layout__name input { width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
 .layout__move { width: 34px; height: 34px; font-size: 1rem; }
+.rescue { flex-wrap: wrap; padding: var(--sp-2); gap: var(--sp-2); }
+.rescue .layout__name { flex-basis: 100%; font-size: var(--fs-sm); }
 .layout__move:disabled { opacity: .3; cursor: default; }
 
 /* Campo Logo: vista previa + texto + Elegir; debajo, la cuadrícula. */
@@ -723,6 +741,21 @@ a { color: var(--accent-text); }
 /* Móvil estrecho: los campos a media anchura pasan a ocupar la fila. */
 @media (max-width: 420px) {
   .field--half { grid-column: 1 / -1; }
+}
+
+/* En el móvil, el menú en dos columnas y más bajo: con ocho secciones en
+   una sola columna ocupaba toda la primera pantalla y lo útil (próximos
+   cobros, gasto) quedaba debajo. */
+@media (max-width: 639px) {
+  .tiles { grid-template-columns: 1fr 1fr; }
+  .tile {
+    grid-template-columns: auto 1fr; column-gap: var(--sp-2);
+    padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3);
+  }
+  .tile__icon { width: 32px; height: 32px; border-radius: 9px; font-size: 1.05rem; }
+  .tile__label { font-size: var(--fs-sm); line-height: 1.25; }
+  .tile__meta { font-size: var(--fs-xs); line-height: 1.3; }
+  .tile__chevron { display: none; }
 }
 
 /* Pie del formulario en pantalla estrecha: Borrar/Archivar/Duplicar

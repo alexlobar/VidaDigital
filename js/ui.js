@@ -26,6 +26,8 @@ VD.ui = (function () {
                 installed: 'Instalado' }
   };
 
+  const ALWAYS_CARDS = ['spend', 'upcoming', 'security'];
+
   const tagFilter = {};      // tipo → etiqueta elegida en su lista
   const showArchived = {};   // tipo → si la lista enseña los archivados
   const THEME_COLOR = { dark: '#0d1117', light: '#f5f7fb' };
@@ -47,7 +49,7 @@ VD.ui = (function () {
       'homeUpcoming', 'homeUpcomingEmpty', 'securityLine', 'securityList', 'homeTiles',
       'migrationCard', 'migrationLine', 'migrationTrack', 'migrationFill', 'migrationList',
       'migrationActions', 'btnResetMigration', 'cleanupCard', 'cleanupLine', 'cleanupList',
-      'copiesCard', 'copiesLine', 'copiesHomeList',
+      'copiesCard', 'copiesLine', 'copiesHomeList', 'careCard', 'careLine', 'careList',
       'pcCard', 'pcLine', 'pcTrack', 'pcFill', 'pcList', 'pcActions', 'btnResetPc',
       'globalSearch', 'globalResults', 'homeBody', 'homeGrid', 'spendCard', 'upcomingCard', 'securityCard',
       'setAccent', 'layoutSections', 'layoutCards', 'btnShareJson', 'btnItemDuplicate',
@@ -60,6 +62,7 @@ VD.ui = (function () {
       'btnItemClose', 'btnItemDelete', 'btnItemCancel', 'btnItemArchive',
       'importModal', 'importForm', 'importText', 'importKind', 'importResult',
       'btnImportClose', 'btnImportTemplate', 'btnImportFile', 'btnImportRun',
+      'appShell', 'privacyNote', 'rescueCard', 'rescueList',
       'setTheme', 'setBackup', 'backupStatus',
       'btnExportJson', 'btnImport', 'btnExportCsv', 'btnReset',
       'installRow', 'btnInstall', 'buildCache', 'buildQuota', 'buildPersist', 'buildHint',
@@ -187,9 +190,14 @@ VD.ui = (function () {
         ]));
       });
     }
+    const wasOpen = !els.fabMenu.hidden;
     els.fabMenu.hidden = !open;
     els.fab.setAttribute('aria-expanded', open ? 'true' : 'false');
     els.fab.classList.toggle('fab--open', open);
+    // Con teclado: al abrir, el foco va a la primera opción; al cerrar con
+    // Esc, vuelve al +.
+    if (open && els.fabMenu.firstChild) els.fabMenu.firstChild.focus();
+    else if (wasOpen && !open && els.fabMenu.contains(document.activeElement)) els.fab.focus();
   }
 
   /** Lo que hace el +: el tipo a añadir, o null si toca abrir el menú. */
@@ -207,13 +215,21 @@ VD.ui = (function () {
     return a.name.localeCompare(b.name, 'es', { sensitivity: 'base' });
   }
 
+  /** "Partidas guardadas" → "partidas guardadas", para "falta partidas…". */
+  function lowerFirst(s) {
+    return s ? s.charAt(0).toLowerCase() + s.slice(1) : s;
+  }
+
   /** "hoy", "mañana", "en 5 días", "hace 3 días" */
   function relative(today, key) {
     const n = U.daysBetween(today, key);
     if (n === 0) return 'hoy';
     if (n === 1) return 'mañana';
-    if (n > 0) return 'en ' + n + ' días';
-    return n === -1 ? 'ayer' : 'hace ' + (-n) + ' días';
+    if (n === -1) return 'ayer';
+    // Desde dos meses, en meses: "hace 10 meses" se entiende, "hace 300 días" no.
+    const abs = Math.abs(n);
+    const span = abs >= 60 ? Math.round(abs / 30.44) + ' meses' : abs + ' días';
+    return (n > 0 ? 'en ' : 'hace ') + span;
   }
 
   /* ── Logos ────────────────────────────────────────────────
@@ -253,7 +269,7 @@ VD.ui = (function () {
       svg.appendChild(path);
       node.appendChild(svg);
     } else {
-      const text = logo ? logo.text : initials(item.name);
+      const text = (logo && logo.text) || initials(item.name);
       node.appendChild(el('span', { class: 'logo__text' + (text.length > 2 ? ' logo__text--long' : ''), text: text }));
     }
     return node;
@@ -290,10 +306,11 @@ VD.ui = (function () {
     // Gasto
     const t = C.totals(state);
     els.spendMonth.textContent = U.money(t.month);
-    const sub = [U.money(t.year) + ' al año',
-                 t.activeSubs + (t.activeSubs === 1 ? ' suscripción activa' : ' suscripciones activas')];
-    if (t.sharedSubs) sub.push('de las compartidas cuenta solo tu parte');
-    if (t.websYear) sub.push('incluye ' + U.money(t.websYear) + ' al año de dominios');
+    // Con dominios, se desglosa: si no, el recuadro de Suscripciones (que
+    // solo suma suscripciones) y esta cifra no cuadraban a simple vista.
+    const sub = [U.money(t.year) + ' al año'];
+    if (t.websYear) sub.push(U.money(t.subsMonth) + ' suscripciones + ' + U.money(t.websYear / 12) + ' dominios');
+    if (t.sharedSubs) sub.push('solo tu parte de las compartidas');
     els.spendYear.textContent = sub.join(' · ');
 
     els.spendCats.textContent = '';
@@ -355,6 +372,28 @@ VD.ui = (function () {
       });
     }
 
+    // Cuidado de dispositivos: lo que toca cargar y lo que no se usa
+    const care = C.deviceCare(state, today);
+    els.careCard.hidden = !care.toCharge.length && !care.idle.length;
+    els.careList.textContent = '';
+    if (!els.careCard.hidden) {
+      const parts = [];
+      if (care.toCharge.length) parts.push('🔋 ' + care.toCharge.length + (care.toCharge.length === 1 ? ' toca cargarlo' : ' toca cargarlos'));
+      if (care.idle.length) parts.push('💤 ' + care.idle.length + (care.idle.length === 1 ? ' lleva' : ' llevan') + ' más de 6 meses sin usarse');
+      els.careLine.textContent = parts.join(' · ') + '. Usa «Cargado» y «Usado» en su fila.';
+      care.toCharge.forEach(function (x) {
+        els.careList.appendChild(el('li', null, [
+          rowButton('devices', x.item, null, chargeText(x.status, today), x.status.charge === 'soon' ? 'warn' : 'danger')
+        ]));
+      });
+      care.idle.forEach(function (x) {
+        if (care.toCharge.some(function (c) { return c.item.id === x.item.id; })) return;
+        els.careList.appendChild(el('li', null, [
+          rowButton('devices', x.item, null, 'Sin usar ' + relative(today, x.item.lastUsed) + ' · ¿lo guardas, lo vendes o lo archivas?', '')
+        ]));
+      });
+    }
+
     // Cuentas para borrar
     const clean = C.cleanup(state);
     els.cleanupCard.hidden = !clean.pending.length;
@@ -380,6 +419,9 @@ VD.ui = (function () {
       const card = els[id + 'Card'];
       if (!card) return;
       els.homeGrid.appendChild(card);
+      // Gasto, Próximos y Seguridad no dependen de los datos: nadie más les
+      // quita el `hidden`, así que hay que hacerlo aquí al volver a marcarlas.
+      if (ALWAYS_CARDS.indexOf(id) >= 0) card.hidden = false;
       if (layout.hidden.indexOf(id) >= 0) card.hidden = true;
     });
 
@@ -492,11 +534,18 @@ VD.ui = (function () {
       const login = a.login && a.login !== 'nose' && a.login !== 'sin' ? ' · ' + U.optionName(U.LOGIN_METHODS, a.login) : '';
       list.appendChild(el('li', null, [
         rowButton(kindId, a, null,
-                  (installed ? cfg.installed + ' · falta ' + (a.transfer || 'entrar o pasar datos') : 'Pendiente') + login,
+                  (installed ? cfg.installed + ' · falta ' + lowerFirst(a.transfer || 'entrar o pasar datos') : 'Pendiente') + login,
                   installed ? 'warn' : '')
       ]));
     });
     list.hidden = !m.left.length;
+  }
+
+  /** "Sin cargar desde hace 40 días" / "Cargar en 3 días" / "Nunca apuntaste una carga" */
+  function chargeText(status, today) {
+    if (status.charge === 'never') return 'No has apuntado ninguna carga';
+    if (status.charge === 'late') return 'Tocaba cargarlo ' + relative(today, status.due);
+    return 'Toca cargarlo ' + relative(today, status.due);
   }
 
   /** "Atrasada 12 días · Google Fotos" / "Nunca hecha · disco externo" */
@@ -560,14 +609,20 @@ VD.ui = (function () {
       d.badge = { text: MIGRATIONS[kindId].badges[it.migration], tone: tone };
 
     } else if (kindId === 'devices') {
+      const st = C.deviceStatus(it, today);
       if (it.model) d.meta.push(it.model);
+      // Uso y carga primero: es lo que cambia y lo que se mira.
+      if (it.lastUsed) d.meta.push('Usado ' + relative(today, it.lastUsed));
+      if (it.lastCharged) d.meta.push('Cargado ' + relative(today, it.lastCharged));
+      if (it.warrantyUntil && it.warrantyUntil >= today) d.meta.push('Garantía hasta ' + U.formatDate(it.warrantyUntil));
       if (it.purchaseDate) d.meta.push('Comprado ' + U.formatDate(it.purchaseDate));
-      if (it.warrantyUntil) {
-        d.meta.push(it.warrantyUntil >= today ? 'Garantía hasta ' + U.formatDate(it.warrantyUntil) : 'Sin garantía');
-      }
       d.dim = it.status === 'vendido';
-      d.badge = { text: U.optionName(U.DEVICE_STATUS, it.status),
-                  tone: it.status === 'uso' ? 'ok' : it.status === 'roto' ? 'danger' : 'muted' };
+      // La carga manda sobre el estado: "toca cargar" es lo que hay que hacer.
+      if (st.charge === 'never' || st.charge === 'late') d.badge = { text: 'Toca cargar', tone: 'danger' };
+      else if (st.charge === 'soon') d.badge = { text: 'Cargar ' + relative(today, st.due), tone: 'warn' };
+      else if (st.idle) d.badge = { text: 'Sin usar', tone: 'warn' };
+      else d.badge = { text: U.optionName(U.DEVICE_STATUS, it.status),
+                       tone: it.status === 'uso' ? 'ok' : it.status === 'roto' ? 'danger' : 'muted' };
 
     } else if (kindId === 'licenses') {
       if (it.keyWhere) d.meta.push('Clave: ' + it.keyWhere);
@@ -661,12 +716,25 @@ VD.ui = (function () {
       'aria-label': (it.method === 'auto' ? 'Marcar como comprobada hoy: ' : 'Marcar como hecha hoy: ') + it.name
     }, [el('span', { 'aria-hidden': 'true', text: '✓' }), el('span', { class: 'item__done-text', text: 'Hoy' })]) : null;
 
+    // Dispositivos: "Usado" y "Cargado" hoy, en un toque. Lo vendido o roto no.
+    const deviceDone = kind.id === 'devices' && !it.archived && it.status !== 'vendido' && it.status !== 'roto'
+      ? el('span', { class: 'item__pair' }, [
+          el('button', { type: 'button', class: 'item__mini', 'data-device-used': it.id,
+                         title: 'Lo he usado hoy', 'aria-label': 'Usado hoy: ' + it.name }, [
+            el('span', { 'aria-hidden': 'true', text: '✋' }), el('span', { text: 'Usado' })]),
+          el('button', { type: 'button', class: 'item__mini', 'data-device-charged': it.id,
+                         title: 'Lo he cargado hoy', 'aria-label': 'Cargado hoy: ' + it.name }, [
+            el('span', { 'aria-hidden': 'true', text: '🔋' }), el('span', { text: 'Cargado' })])
+        ])
+      : null;
+
     // El enlace va fuera del botón: un <a> dentro de un <button> no es válido.
     const href = U.safeUrl(it.url);
     return el('div', { class: 'item-row' }, [
       main,
       check,
       copyDone,
+      deviceDone,
       href ? el('a', {
         class: 'item__link', href: href, target: '_blank', rel: 'noopener noreferrer',
         title: 'Abrir ' + U.shortUrl(it.url), 'aria-label': 'Abrir la web de ' + it.name, text: '↗'
@@ -714,8 +782,11 @@ VD.ui = (function () {
       return head + (cp.late ? ' · ' + cp.late + (cp.late === 1 ? ' atrasada' : ' atrasadas') : ' · todas al día');
     }
     if (kind.id === 'devices') {
+      const care = C.deviceCare(S.getState(), U.todayKey());
       const used = all.filter(function (d) { return d.status === 'uso'; }).length;
-      return head + ' · ' + used + ' en uso';
+      return head + ' · ' + used + ' en uso' +
+             (care.toCharge.length ? ' · ' + care.toCharge.length + ' por cargar' : '') +
+             (care.idle.length ? ' · ' + care.idle.length + ' sin usar' : '');
     }
     const y = all.reduce(function (s, w) { return s + (w.price || 0); }, 0);
     return y ? head + ' · ' + U.money(y) + ' al año' : head;
@@ -723,8 +794,8 @@ VD.ui = (function () {
 
   /** Todas las etiquetas usadas en una sección, de la más usada a la menos. */
   function tagsOf(items) {
-    const count = {};
-    const label = {};
+    const count = Object.create(null);
+    const label = Object.create(null);
     items.forEach(function (it) {
       (it.tags || []).forEach(function (t) {
         const k = U.plain(t);
@@ -936,7 +1007,7 @@ VD.ui = (function () {
 
     const search = el('input', { type: 'search', class: 'search logo-picker__search',
                                  placeholder: 'Buscar marca…', 'aria-label': 'Buscar marca', autocomplete: 'off' });
-    const grid = el('div', { class: 'logo-picker__grid', role: 'listbox', 'aria-label': 'Logos' });
+    const grid = el('div', { class: 'logo-picker__grid', role: 'group', 'aria-label': 'Logos' });
     grid.appendChild(el('button', { type: 'button', class: 'logo-choice', 'data-logo-choose': '', title: 'Automático' }, [
       el('span', { class: 'logo logo--auto', 'aria-hidden': 'true', text: 'Auto' }),
       el('span', { class: 'logo-choice__name', text: 'Automático' })
@@ -953,6 +1024,15 @@ VD.ui = (function () {
       Array.prototype.forEach.call(grid.children, function (b) {
         b.hidden = !!q && (b.dataset.search || '').indexOf(q) < 0;
       });
+    });
+    // El buscador está dentro del formulario: Enter (el "Ir" del teclado
+    // del móvil) lo enviaría y guardaría el elemento a medias. Aquí, Enter
+    // elige la marca si solo queda una.
+    search.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const left = Array.prototype.filter.call(grid.children, function (b) { return !b.hidden && b.dataset.search; });
+      if (left.length === 1) chooseLogo(left[0].dataset.logoChoose);
     });
     panel.appendChild(search);
     panel.appendChild(grid);
@@ -1052,9 +1132,10 @@ VD.ui = (function () {
 
   /** Lo que hay en el formulario, para saber si se ha tocado. */
   function snapshot() {
-    return JSON.stringify([Array.prototype.map.call(els.itemForm.elements, function (e) {
-      return e.id === 'formLinkPicker' ? '' : e.type === 'checkbox' ? e.checked : e.value;
-    }), formLinks]);
+    // Solo los campos de verdad (llevan `name`): abrir el selector de logos
+    // o el de enlaces añade controles al formulario, y eso no es un cambio.
+    return JSON.stringify([Array.prototype.filter.call(els.itemForm.elements, function (e) { return !!e.name; })
+      .map(function (e) { return e.type === 'checkbox' ? e.checked : e.value; }), formLinks]);
   }
 
   function formDirty() {
@@ -1127,14 +1208,6 @@ VD.ui = (function () {
     if (input) input.focus();
   }
 
-  /** "1.234,56 €" → 1234.56; "" → null; basura → NaN. */
-  function parseMoney(text) {
-    let raw = String(text).replace(/[\s€]/g, '');
-    if (!raw) return null;
-    if (raw.indexOf(',') >= 0) raw = raw.replace(/\./g, '').replace(',', '.');
-    return /^\d+(\.\d+)?$/.test(raw) ? Number(raw) : NaN;
-  }
-
   /** Lee el formulario. Devuelve { kind, data } o null si hay un error (ya enseñado). */
   function readForm() {
     const kind = U.kindById(formKind);
@@ -1150,7 +1223,7 @@ VD.ui = (function () {
       if (f.type === 'check') {
         data[f.key] = input.checked;
       } else if (f.type === 'money') {
-        const n = parseMoney(input.value);
+        const n = U.parseMoney(input.value);
         if (isNaN(n)) { showFormError('«' + f.label + '» no es un importe válido. Ejemplo: 9,99', input); return null; }
         data[f.key] = n;
       } else {
@@ -1217,7 +1290,7 @@ VD.ui = (function () {
     U.ACCENTS.forEach(function (a) {
       const on = a.id === s.accent;
       els.setAccent.appendChild(el('button', {
-        type: 'button', class: 'swatch', role: 'radio', 'aria-checked': on ? 'true' : 'false',
+        type: 'button', class: 'swatch', 'aria-pressed': on ? 'true' : 'false',
         'aria-label': a.name, title: a.name, 'data-accent': a.id,
         '--swatch': (s.theme === 'light' ? a.light : a.dark)[0]
       }));
@@ -1238,6 +1311,39 @@ VD.ui = (function () {
     els.btnPwSet.hidden = enc || !S.cryptoAvailable();
     els.btnPwChange.hidden = !enc;
     els.btnPwRemove.hidden = !enc;
+
+    els.privacyNote.textContent = enc
+      ? '🔒 Tus datos van cifrados con tu contraseña. Aun así, no apuntes aquí contraseñas ni números de tarjeta: para eso, un gestor de contraseñas.'
+      : '🔒 Aquí no se guardan contraseñas ni números de tarjeta: sin contraseña, los datos del navegador no van cifrados. Para eso, un gestor de contraseñas.';
+
+    // Copias de rescate: lo que no se pudo abrir y no se debe perder.
+    const rescues = S.getRescues();
+    els.rescueCard.hidden = !rescues.length;
+    els.rescueList.textContent = '';
+    rescues.forEach(function (r, i) {
+      const what = r.kind === 'locked' ? '🔒 Datos cifrados de «He olvidado la contraseña»' : '⚠️ Datos que llegaron dañados';
+      els.rescueList.appendChild(el('li', { class: 'layout__row rescue' }, [
+        el('span', { class: 'layout__name', text: what + (r.date ? ' · ' + U.formatDate(r.date) : '') }),
+        el('button', { type: 'button', class: 'btn', 'data-rescue-download': String(i), text: 'Descargar' }),
+        el('button', { type: 'button', class: 'btn btn--ghost-danger', 'data-rescue-delete': String(i), text: 'Borrar' })
+      ]));
+    });
+
+    // Al reordenar o marcar en Ajustes → Resumen se repinta la lista: el
+    // foco vuelve al mismo control (o al de al lado, si quedó desactivado).
+    if (pendingFocus) {
+      const target = pendingFocus.map(function (sel) { return document.querySelector(sel); })
+        .filter(function (n) { return n && !n.disabled; })[0];
+      if (target) target.focus();
+      pendingFocus = null;
+    }
+  }
+
+  let pendingFocus = null;
+
+  /** Selectores por orden de preferencia, para el próximo renderSettings. */
+  function focusAfterRender(selectors) {
+    pendingFocus = selectors;
   }
 
   /** Una lista de Ajustes → Resumen: nombre, Mostrar y ↑ ↓. */
@@ -1322,26 +1428,46 @@ VD.ui = (function () {
     els.pwError.hidden = !text;
   }
 
-  /** Derivar la clave tarda un segundo: el botón lo dice para que no se pulse dos veces. */
+  let pwBusy = false;
+
+  /**
+   * Derivar la clave tarda un segundo: el botón lo dice para que no se
+   * pulse dos veces, y mientras tanto no se puede cerrar el diálogo (si
+   * se cerrara, la operación se aplicaría igual sin que lo vieras).
+   */
   function passwordBusy(busy) {
+    pwBusy = busy;
     els.btnPwSubmit.disabled = busy;
+    els.btnPwCancel.disabled = busy;
+    els.btnPwClose.disabled = busy;
     if (busy) els.btnPwSubmit.textContent = 'Un momento…';
     else if (pwMode) els.btnPwSubmit.textContent = PW_MODES[pwMode].submit;
   }
 
+  function isPasswordBusy() { return pwBusy; }
+
   /* ── Candado ──────────────────────────────────────────────── */
 
-  function showLock(message) {
+  /**
+   * `canUnlock` false (navegador sin Web Crypto): solo el mensaje y
+   * "He olvidado la contraseña"; escribirla no serviría de nada.
+   */
+  function showLock(message, canUnlock) {
     els.lockScreen.hidden = false;
+    // Lo de detrás del candado, fuera del alcance del tabulador y del lector de pantalla.
+    if (els.appShell) els.appShell.inert = true;
     els.lockInput.value = '';
+    els.lockInput.hidden = canUnlock === false;
+    els.lockSubmit.hidden = canUnlock === false;
     lockMessage(message || '');
     lockBusy(false);
-    els.lockInput.focus();
+    if (canUnlock !== false) els.lockInput.focus();
   }
 
   function hideLock() {
     els.lockInput.value = '';
     els.lockScreen.hidden = true;
+    if (els.appShell) els.appShell.inert = false;
   }
 
   function lockMessage(text) {
@@ -1358,6 +1484,8 @@ VD.ui = (function () {
   function lockBusy(busy) {
     els.lockSubmit.disabled = busy;
     els.lockInput.disabled = busy;
+    // "He olvidado" en mitad de un desbloqueo arrancaría la app dos veces.
+    els.btnLockForgot.disabled = busy;
     els.lockSubmit.textContent = busy ? 'Abriendo…' : 'Abrir';
   }
 
@@ -1517,7 +1645,8 @@ VD.ui = (function () {
     renderGlobal: renderGlobal, setTagFilter: setTagFilter, toggleArchived: toggleArchived,
     toggleFabMenu: toggleFabMenu, fabTarget: fabTarget,
     openPassword: openPassword, closePassword: closePassword, passwordForm: passwordForm,
-    passwordError: passwordError, passwordBusy: passwordBusy,
+    passwordError: passwordError, passwordBusy: passwordBusy, isPasswordBusy: isPasswordBusy,
+    focusAfterRender: focusAfterRender,
     showLock: showLock, hideLock: hideLock, lockMessage: lockMessage, lockBusy: lockBusy,
     openImport: openImport, closeImport: closeImport, importResult: importResult,
     toast: toast
